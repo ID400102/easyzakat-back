@@ -4,7 +4,8 @@ const {
     createPayment,
     getMyPayments,
     getPaymentById,
-    updatePaymentStatus
+    updatePaymentStatus,
+    paymentWebhook
 } = require("../controllers/paymentController");
 
 const protect = require("../middleware/authMiddleware");
@@ -14,6 +15,10 @@ const router = express.Router();
 
 // Créer un paiement
 router.post("/", protect, createPayment);
+
+
+// Webhook du prestataire de paiement
+router.post("/webhook", paymentWebhook);
 
 
 // Récupérer mes paiements

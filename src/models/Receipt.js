@@ -1,7 +1,19 @@
 const mongoose = require("mongoose");
 
-const paymentSchema = new mongoose.Schema(
+const receiptSchema = new mongoose.Schema(
     {
+        receiptNumber: {
+            type: String,
+            unique: true,
+            required: true
+        },
+
+        payment: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Payment",
+            required: true
+        },
+
         donation: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Donation",
@@ -16,11 +28,21 @@ const paymentSchema = new mongoose.Schema(
 
         amount: {
             type: Number,
-            required: true,
-            min: 1
+            required: true
         },
 
-        provider: {
+        donationType: {
+            type: String,
+            enum: [
+                "zakat",
+                "sadaqa",
+                "ramadan",
+                "urgence_sociale"
+            ],
+            required: true
+        },
+
+        paymentMethod: {
             type: String,
             enum: [
                 "wave",
@@ -32,32 +54,18 @@ const paymentSchema = new mongoose.Schema(
             required: true
         },
 
+        transactionReference: {
+            type: String,
+            required: true
+        },
+
         status: {
             type: String,
             enum: [
-                "initiated",
-                "pending",
                 "success",
                 "failed"
             ],
-            default: "initiated"
-        },
-
-        transactionReference: {
-            type: String,
-            unique: true,
-            sparse: true
-        },
-
-        providerReference: {
-            type: String,
-            default: ""
-        },
-
-        fees: {
-            type: Number,
-            default: 0,
-            min: 0
+            default: "success"
         }
     },
     {
@@ -65,4 +73,4 @@ const paymentSchema = new mongoose.Schema(
     }
 );
 
-module.exports = mongoose.model("Payment", paymentSchema);
+module.exports = mongoose.model("Receipt", receiptSchema);
