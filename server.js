@@ -9,6 +9,13 @@ const campaignRoutes = require("./src/routes/campaignRoutes");
 const donationRoutes = require("./src/routes/donationRoutes");
 const paymentRoutes = require("./src/routes/paymentRoutes");
 const adminRoutes = require("./src/routes/adminRoutes");
+const receiptRoutes = require("./src/routes/receiptRoutes");
+const organizationRoutes = require("./src/routes/organizationRoutes");
+const beneficiaryRoutes = require("./src/routes/beneficiaryRoutes");
+const distributionRoutes = require("./src/routes/distributionRoutes");
+const dashboardRoutes = require("./src/routes/dashboardRoutes");
+const impactRoutes = require("./src/routes/impactRoutes");
+const auditRoutes = require("./src/routes/auditRoutes");
 
 dotenv.config();
 
@@ -25,6 +32,14 @@ app.use("/api/campaigns", campaignRoutes);
 app.use("/api/donations", donationRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/receipts", receiptRoutes);
+app.use("/api/organizations", organizationRoutes);
+app.use("/api/beneficiaries", beneficiaryRoutes);
+app.use("/api/distributions", distributionRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/impact", impactRoutes);
+app.use("/api/audits", auditRoutes);
+
 
 // Route de test
 app.get("/", (req, res) => {
