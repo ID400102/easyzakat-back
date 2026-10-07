@@ -1,8 +1,12 @@
 const Payment = require("../models/Payment");
 const Donation = require("../models/Donation");
+const generatePaymentReference = require("../utils/generateReference");
+const createAudit = require("../utils/createAudit");
 
 
-// Créer un paiement
+// ==========================================
+// CRÉER UN PAIEMENT
+// ==========================================
 const createPayment = async (req, res) => {
     try {
         const { donation, provider, fees } = req.body;
@@ -29,13 +33,18 @@ const createPayment = async (req, res) => {
             });
         }
 
+        // Générer la référence interne EasyZakat
+        const transactionReference = generatePaymentReference();
+
+        // Créer le paiement
         const payment = await Payment.create({
             donation: existingDonation._id,
             donor: req.user.id,
             amount: existingDonation.amount,
             provider,
             fees: fees || 0,
-            status: "initiated"
+            status: "initiated",
+            transactionReference
         });
 
         res.status(201).json({
@@ -54,14 +63,16 @@ const createPayment = async (req, res) => {
 };
 
 
-// Récupérer mes paiements
+// ==========================================
+// RÉCUPÉRER MES PAIEMENTS
+// ==========================================
 const getMyPayments = async (req, res) => {
     try {
         const payments = await Payment.find({
             donor: req.user.id
         })
-        .populate("donation")
-        .sort({ createdAt: -1 });
+            .populate("donation")
+            .sort({ createdAt: -1 });
 
         res.json({
             count: payments.length,
@@ -79,7 +90,9 @@ const getMyPayments = async (req, res) => {
 };
 
 
-// Récupérer un paiement par son ID
+// ==========================================
+// RÉCUPÉRER UN PAIEMENT PAR SON ID
+// ==========================================
 const getPaymentById = async (req, res) => {
     try {
         const payment = await Payment.findById(req.params.id)
@@ -114,7 +127,9 @@ const getPaymentById = async (req, res) => {
 };
 
 
-// Modifier le statut d'un paiement
+// ==========================================
+// MODIFIER LE STATUT D'UN PAIEMENT
+// ==========================================
 const updatePaymentStatus = async (req, res) => {
     try {
         const { status, transactionReference } = req.body;
@@ -189,9 +204,125 @@ const updatePaymentStatus = async (req, res) => {
 };
 
 
+// ==========================================
+// WEBHOOK PAIEMENT
+// ==========================================
+const paymentWebhook = async (req, res) => {
+    try {
+        const {
+            transactionReference,
+            providerReference,
+            status
+        } = req.body;
+
+        if (!transactionReference || !status) {
+            return res.status(400).json({
+                message: "La référence et le statut sont obligatoires"
+            });
+        }
+
+        const allowedStatuses = [
+            "pending",
+            "success",
+            "failed"
+        ];
+
+        if (!allowedStatuses.includes(status)) {
+            return res.status(400).json({
+                message: "Statut de paiement invalide"
+            });
+        }
+
+        // Rechercher le paiement avec la référence EasyZakat
+        const payment = await Payment.findOne({
+            transactionReference
+        });
+
+        if (!payment) {
+            return res.status(404).json({
+                message: "Paiement introuvable"
+            });
+        }
+
+        // Éviter de traiter deux fois un paiement terminé
+        if (
+            payment.status === "success" ||
+            payment.status === "failed"
+        ) {
+            return res.json({
+                message: "Paiement déjà traité",
+                payment
+            });
+        }
+
+        // Mettre à jour le paiement
+        payment.status = status;
+
+        if (providerReference) {
+            payment.providerReference = providerReference;
+        }
+
+        await payment.save();
+
+        await createAudit({
+    action: "PAYMENT_STATUS_UPDATED",
+    entityType: "Payment",
+    entityId: payment._id,
+    user: payment.donor,
+    details: {
+        status: payment.status,
+        amount: payment.amount,
+        provider: payment.provider,
+        transactionReference: payment.transactionReference,
+        providerReference: payment.providerReference
+    }
+});
+
+        // Synchroniser la Donation
+        const donation = await Donation.findById(payment.donation);
+
+        if (donation) {
+
+            if (status === "success") {
+                donation.status = "success";
+            } else if (status === "failed") {
+                donation.status = "failed";
+            } else {
+                donation.status = "pending";
+            }
+
+            donation.transactionReference =
+                payment.transactionReference;
+
+            donation.paymentMethod =
+                payment.provider;
+
+            await donation.save();
+        }
+
+        res.json({
+            message: "Webhook traité avec succès",
+            payment
+        });
+
+    } catch (error) {
+        console.error("Erreur webhook :", error);
+
+        res.status(500).json({
+            message: "Erreur lors du traitement du webhook",
+            error: error.message
+        });
+    }
+};
+
+
+// ==========================================
+// EXPORTS
+// ==========================================
 module.exports = {
     createPayment,
     getMyPayments,
     getPaymentById,
-    updatePaymentStatus
+    updatePaymentStatus,
+    paymentWebhook
 };
