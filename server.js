@@ -51,3 +51,18 @@ app.get("/", (req, res) => {
 // Port
 const PORT = process.env.PORT || 5000;
 
+// Démarrage du serveur
+const startServer = async () => {
+    try {
+        await connectDB();
+
+        app.listen(PORT, "0.0.0.0", () => {
+            console.log(`Serveur EasyZakat lancé sur le port ${PORT}`);
+        });
+    } catch (error) {
+        console.error("Erreur lors du démarrage du serveur :", error);
+        process.exit(1);
+    }
+};
+
+startServer();
