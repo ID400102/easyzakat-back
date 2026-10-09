@@ -10,6 +10,21 @@ const createAudit = require("../utils/createAudit");
 const createPayment = async (req, res) => {
     try {
         const { donation, provider, fees } = req.body;
+        const allowedProviders = [
+  "wave",
+  "orange_money",
+  "free_money",
+  "card",
+  "bank_transfer",
+];
+
+if (!allowedProviders.includes(provider)) {
+  return res.status(400).json({
+    message: "Moyen de paiement non pris en charge",
+    provider,
+    allowedProviders,
+  });
+}
 
         if (!donation || !provider) {
             return res.status(400).json({

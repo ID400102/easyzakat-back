@@ -1,0 +1,1052 @@
+# Explication complète du backend EasyZakat
+
+## 1. Présentation générale
+
+Le backend d’EasyZakat est la partie du projet qui se trouve derrière l’interface utilisateur.
+
+Il a été développé avec :
+
+- **Node.js** : environnement permettant d’exécuter JavaScript côté serveur.
+- **Express.js** : framework utilisé pour créer le serveur et les API.
+- **MongoDB** : base de données utilisée pour stocker les informations.
+- **Mongoose** : bibliothèque permettant de créer les modèles et de communiquer avec MongoDB.
+- **JWT** : mécanisme utilisé pour l’authentification des utilisateurs.
+
+Le frontend React affiche les interfaces, tandis que le backend reçoit les requêtes, vérifie les données, applique les règles métier et communique avec MongoDB.
+
+L’architecture générale est donc :
+
+```text
+Utilisateur
+    ↓
+Frontend React
+    ↓
+API HTTP
+    ↓
+Node.js + Express
+    ↓
+Controllers
+    ↓
+Models / Mongoose
+    ↓
+MongoDB
+```
+
+Le serveur EasyZakat fonctionne actuellement sur :
+
+```text
+http://localhost:5000
+```
+
+Toutes les API commencent généralement par :
+
+```text
+http://localhost:5000/api
+```
+
+---
+
+# 2. Organisation du backend
+
+Le backend est organisé en plusieurs dossiers pour séparer les responsabilités.
+
+```text
+easyzakat-back/
+│
+├── controllers/
+├── models/
+├── routes/
+├── middleware/
+├── utils/
+├── server.js
+└── package.json
+```
+
+## `server.js`
+
+C’est le fichier principal du backend.
+
+Il démarre le serveur Express, connecte MongoDB et enregistre les différentes routes.
+
+Par exemple :
+
+```js
+app.use("/api/payments", paymentRoutes);
+app.use("/api/receipts", receiptRoutes);
+app.use("/api/organizations", organizationRoutes);
+app.use("/api/beneficiaries", beneficiaryRoutes);
+app.use("/api/distributions", distributionRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/impact", impactRoutes);
+app.use("/api/audits", auditRoutes);
+```
+
+Cela signifie que chaque module possède son propre groupe d’API.
+
+---
+
+# 3. Authentification et utilisateurs
+
+La première partie importante du backend est la gestion des utilisateurs.
+
+Un utilisateur possède notamment :
+
+```text
+firstName
+lastName
+email
+phone
+password
+role
+isActive
+```
+
+Le rôle permet de différencier les utilisateurs.
+
+Dans notre système, il existe notamment :
+
+```text
+donor
+organization
+agent
+validator
+finance
+admin
+superadmin
+```
+
+## Inscription
+
+Lorsqu'un utilisateur s’inscrit, le frontend envoie :
+
+```text
+POST /api/auth/register
+```
+
+avec les informations du compte.
+
+Le backend reçoit les données, les vérifie et crée l’utilisateur dans MongoDB.
+
+La collection utilisée est :
+
+```text
+users
+```
+
+## Connexion
+
+La connexion utilise :
+
+```text
+POST /api/auth/login
+```
+
+L’utilisateur donne son email et son mot de passe.
+
+Si les informations sont correctes, le backend génère un **token JWT**.
+
+Le frontend stocke ensuite ce token dans `localStorage`.
+
+Grâce à ce token, l’utilisateur peut accéder aux routes protégées.
+
+---
+
+# 4. Middleware d’authentification
+
+Pour protéger les routes, nous avons utilisé :
+
+```text
+middleware/authMiddleware.js
+```
+
+Le middleware vérifie le token envoyé par le frontend :
+
+```text
+Authorization: Bearer TOKEN
+```
+
+S’il est valide, le backend identifie l’utilisateur et rend ses informations disponibles dans :
+
+```js
+req.user
+```
+
+Par exemple :
+
+```js
+req.user.id
+req.user.role
+```
+
+C’est très important pour savoir :
+
+- qui effectue l’opération ;
+- à quel utilisateur appartiennent les données ;
+- si l'utilisateur est administrateur.
+
+---
+
+# 5. Calculateur Zakat
+
+Le backend possède également une partie consacrée au calcul de la Zakat.
+
+Le principe est :
+
+```text
+Frontend
+   ↓
+Données financières
+   ↓
+API Zakat
+   ↓
+Calcul
+   ↓
+Résultat
+   ↓
+MongoDB
+```
+
+Le calcul peut être demandé depuis le frontend et le résultat peut être enregistré afin que l'utilisateur puisse retrouver son historique.
+
+La base possède une collection consacrée aux calculs :
+
+```text
+zakatcalculations
+```
+
+---
+
+# 6. Campagnes
+
+Les campagnes permettent de définir les causes auxquelles les utilisateurs peuvent contribuer.
+
+Une campagne possède notamment :
+
+```text
+name
+organization
+category
+description
+objective
+startDate
+endDate
+location
+status
+```
+
+Les catégories prévues comprennent :
+
+```text
+zakat
+sadaqa
+ramadan
+urgence_sociale
+```
+
+Une campagne peut donc représenter, par exemple :
+
+```text
+Campagne Solidarité Ramadan
+Objectif : 1 000 000 FCFA
+Organisation : une organisation partenaire
+```
+
+L’organisation est enregistrée comme un **ObjectId MongoDB** et non comme un simple texte.
+
+C’était important dans notre projet car nous avions rencontré une erreur lorsque nous utilisions un texte comme organisation.
+
+---
+
+# 7. Donations
+
+Le module Donation représente le don réalisé par un utilisateur.
+
+Le modèle contient notamment :
+
+```text
+donor
+campaign
+type
+amount
+anonymous
+status
+paymentMethod
+transactionReference
+```
+
+Par exemple :
+
+```json
+{
+  "type": "sadaqa",
+  "amount": 25000,
+  "anonymous": false,
+  "paymentMethod": "wave"
+}
+```
+
+Le don appartient à un utilisateur grâce au champ :
+
+```text
+donor
+```
+
+et peut être associé à une campagne grâce au champ :
+
+```text
+campaign
+```
+
+Le statut du don peut être :
+
+```text
+pending
+success
+failed
+```
+
+---
+
+# 8. Paiements
+
+Le paiement est différent du don.
+
+Le **don** représente ce que l'utilisateur souhaite donner.
+
+Le **paiement** représente l'opération permettant de régler ce don.
+
+Le modèle Payment contient notamment :
+
+```text
+donation
+donor
+amount
+provider
+status
+transactionReference
+providerReference
+fees
+```
+
+Les moyens de paiement prévus sont :
+
+```text
+wave
+orange_money
+free_money
+card
+bank_transfer
+```
+
+Le paiement commence généralement avec :
+
+```text
+initiated
+```
+
+puis peut passer à :
+
+```text
+pending
+```
+
+et finalement :
+
+```text
+success
+```
+
+ou :
+
+```text
+failed
+```
+
+---
+
+# 9. Référence de transaction
+
+Pour chaque paiement, EasyZakat génère automatiquement une référence interne.
+
+Nous avons créé :
+
+```text
+utils/generateReference.js
+```
+
+Il produit par exemple :
+
+```text
+EZ-PAY-20261006-530C4087
+```
+
+Cette référence permet d’identifier précisément une transaction EasyZakat.
+
+Nous avons également prévu :
+
+```text
+providerReference
+```
+
+qui permet d’enregistrer la référence retournée par le prestataire de paiement.
+
+Par exemple :
+
+```text
+WAVE-TEST-001
+```
+
+---
+
+# 10. Webhook de paiement
+
+Le webhook permet au prestataire de paiement d'informer EasyZakat de l'évolution d'une transaction.
+
+La route est :
+
+```text
+POST /api/payments/webhook
+```
+
+Elle ne demande pas le token utilisateur.
+
+Elle reçoit notamment :
+
+```json
+{
+  "transactionReference": "EZ-PAY-20261006-530C4087",
+  "providerReference": "WAVE-TEST-001",
+  "status": "success"
+}
+```
+
+Le backend recherche le paiement avec :
+
+```text
+transactionReference
+```
+
+puis met à jour son statut.
+
+En même temps, le backend synchronise le statut du don.
+
+Donc :
+
+```text
+Payment success
+      ↓
+Donation success
+```
+
+Nous avons testé ce fonctionnement avec succès.
+
+---
+
+# 11. Reçus
+
+Après un paiement réussi, EasyZakat peut créer un reçu.
+
+Nous avons créé :
+
+```text
+models/Receipt.js
+```
+
+et :
+
+```text
+controllers/receiptController.js
+```
+
+Le reçu contient notamment :
+
+```text
+receiptNumber
+payment
+donation
+donor
+amount
+donationType
+paymentMethod
+transactionReference
+status
+```
+
+Un numéro de reçu est généré automatiquement, par exemple :
+
+```text
+EZ-REC-20261006-XXXXXXXX
+```
+
+La création du reçu se fait avec :
+
+```text
+POST /api/receipts
+```
+
+Le paiement doit obligatoirement avoir le statut :
+
+```text
+success
+```
+
+Le système vérifie également qu'un reçu n'existe pas déjà pour ce paiement.
+
+---
+
+# 12. Organisations
+
+Le module Organisation permet d’enregistrer les structures partenaires.
+
+Une organisation possède notamment :
+
+```text
+name
+description
+email
+phone
+address
+city
+country
+type
+status
+responsible
+isActive
+```
+
+Son statut initial est :
+
+```text
+pending
+```
+
+Puis un administrateur peut la valider :
+
+```text
+pending → approved
+```
+
+Les API principales sont :
+
+```text
+POST /api/organizations
+GET /api/organizations
+GET /api/organizations/my-organization
+GET /api/organizations/:id
+PUT /api/organizations/:id
+DELETE /api/organizations/:id
+PUT /api/organizations/:id/status
+```
+
+Nous avons testé :
+
+- création ;
+- récupération ;
+- organisation de l'utilisateur ;
+- validation administrateur.
+
+---
+
+# 13. Bénéficiaires
+
+Les bénéficiaires sont les personnes ou familles qui peuvent recevoir une aide.
+
+Le modèle contient notamment :
+
+```text
+firstName
+lastName
+phone
+email
+address
+city
+country
+category
+description
+amountNeeded
+amountReceived
+status
+organization
+createdBy
+isActive
+```
+
+Par exemple :
+
+```text
+Bénéficiaire : Aminata Ndiaye
+Besoin : 100 000 FCFA
+Montant reçu : 50 000 FCFA
+```
+
+Le système permet également d'associer un bénéficiaire à une organisation approuvée.
+
+Un bénéficiaire commence avec :
+
+```text
+pending
+```
+
+Puis l'administrateur peut faire :
+
+```text
+pending → approved
+```
+
+---
+
+# 14. Distributions
+
+La distribution représente l'aide réellement attribuée à un bénéficiaire.
+
+Elle relie :
+
+```text
+Organisation
+       ↓
+Bénéficiaire
+       ↓
+Montant
+       ↓
+Distribution
+```
+
+Le modèle contient notamment :
+
+```text
+beneficiary
+organization
+campaign
+amount
+donationType
+reason
+status
+distributedAt
+createdBy
+```
+
+Une distribution commence avec :
+
+```text
+pending
+```
+
+puis :
+
+```text
+approved
+```
+
+et enfin :
+
+```text
+completed
+```
+
+Lorsque la distribution passe à :
+
+```text
+completed
+```
+
+le backend augmente automatiquement :
+
+```text
+amountReceived
+```
+
+du bénéficiaire.
+
+Dans notre test :
+
+```text
+Besoin total       : 100 000 FCFA
+Distribution       : 50 000 FCFA
+Montant reçu       : 50 000 FCFA
+```
+
+Le fonctionnement a été testé avec succès.
+
+---
+
+# 15. Dashboard du donneur
+
+Nous n’avons pas créé de modèle `Dashboard.js`.
+
+C’est volontaire.
+
+Le dashboard n'est pas une donnée à enregistrer dans MongoDB.
+
+Il s’agit d’un ensemble de statistiques calculées à partir des données existantes :
+
+```text
+Donation
+Payment
+Receipt
+```
+
+Le backend calcule par exemple :
+
+```text
+totalDonated
+donationsCount
+successfulPaymentsCount
+pendingPaymentsCount
+receiptsCount
+```
+
+L'API est :
+
+```text
+GET /api/dashboard/donor
+```
+
+Le frontend utilise cette API pour afficher les statistiques de l'utilisateur connecté.
+
+---
+
+# 16. Dashboard administrateur
+
+Le dashboard administrateur fonctionne de la même manière.
+
+Il n’a pas de modèle `Dashboard.js`.
+
+Il calcule les données directement à partir des collections :
+
+```text
+Donation
+Payment
+Organization
+Beneficiary
+Distribution
+Receipt
+```
+
+L'administrateur peut obtenir :
+
+```text
+Total des dons
+Total des paiements
+Paiements en attente
+Organisations
+Bénéficiaires
+Distributions
+Total distribué
+Reçus
+```
+
+L'API est :
+
+```text
+GET /api/dashboard/admin
+```
+
+Cette route vérifie que l'utilisateur possède le rôle :
+
+```text
+admin
+```
+
+ou :
+
+```text
+superadmin
+```
+
+---
+
+# 17. Transparence / Impact
+
+Le module Impact permet de montrer publiquement les résultats d’EasyZakat.
+
+L'API est :
+
+```text
+GET /api/impact
+```
+
+Elle ne nécessite pas de connexion.
+
+Elle calcule notamment :
+
+```text
+totalCollected
+totalDistributed
+distributionPercentage
+beneficiariesHelped
+beneficiariesCount
+organizationsCount
+campaignsCount
+activeCampaignsCount
+distributionsCount
+```
+
+L'objectif est de permettre au public de voir comment la plateforme évolue et quel impact elle produit.
+
+---
+
+# 18. Audit
+
+Le système d’audit permet de conserver une trace des actions importantes.
+
+Nous avons créé :
+
+```text
+models/Audit.js
+```
+
+Chaque événement contient notamment :
+
+```text
+action
+entityType
+entityId
+user
+details
+createdAt
+```
+
+Par exemple :
+
+```text
+Action :
+ORGANIZATION_STATUS_UPDATED
+```
+
+Cela permet de savoir :
+
+```text
+quelle action a été faite ;
+sur quelle donnée ;
+par quel utilisateur ;
+à quelle date.
+```
+
+Nous avons également créé :
+
+```text
+utils/createAudit.js
+```
+
+Cette fonction permet d’enregistrer facilement les événements.
+
+Des événements peuvent être enregistrés pour :
+
+```text
+organisation
+paiement
+reçu
+bénéficiaire
+distribution
+```
+
+L'administrateur peut consulter les audits grâce à :
+
+```text
+GET /api/audits
+```
+
+---
+
+# 19. Sécurité
+
+Le backend possède plusieurs contrôles de sécurité.
+
+## Authentification
+
+Les routes protégées demandent :
+
+```text
+Authorization: Bearer TOKEN
+```
+
+## Vérification de propriété
+
+Par exemple, pour un paiement, le backend vérifie que le paiement appartient bien à l'utilisateur connecté.
+
+Cela évite qu'un utilisateur consulte ou modifie les données d'un autre utilisateur.
+
+## Vérification des rôles
+
+Certaines opérations sont réservées aux administrateurs :
+
+```text
+admin
+superadmin
+```
+
+Par exemple :
+
+```text
+valider une organisation
+valider un bénéficiaire
+terminer une distribution
+consulter les audits
+```
+
+---
+
+# 20. Flux complet d’EasyZakat
+
+Le fonctionnement général du projet peut être résumé ainsi :
+
+```text
+1. L'utilisateur crée son compte
+             ↓
+2. Il se connecte
+             ↓
+3. Il reçoit un token JWT
+             ↓
+4. Il calcule sa Zakat
+             ↓
+5. Il choisit une campagne
+             ↓
+6. Il crée un don
+             ↓
+7. Il choisit un moyen de paiement
+             ↓
+8. EasyZakat crée le paiement
+             ↓
+9. EasyZakat génère une référence
+             ↓
+10. Le prestataire envoie le webhook
+             ↓
+11. Paiement SUCCESS
+             ↓
+12. Donation SUCCESS
+             ↓
+13. Reçu généré
+             ↓
+14. Don visible dans le dashboard
+             ↓
+15. Les fonds peuvent être redistribués
+             ↓
+16. Une distribution est créée
+             ↓
+17. Distribution APPROVED
+             ↓
+18. Distribution COMPLETED
+             ↓
+19. amountReceived du bénéficiaire est mis à jour
+             ↓
+20. Les opérations importantes sont enregistrées dans l'audit
+```
+
+---
+
+# 21. Communication Frontend / Backend
+
+Le frontend React fonctionne sur :
+
+```text
+http://localhost:5173
+```
+
+Le backend fonctionne sur :
+
+```text
+http://localhost:5000
+```
+
+Par exemple, lorsque l'utilisateur s'inscrit :
+
+```text
+React
+ ↓
+POST http://localhost:5000/api/auth/register
+ ↓
+Express
+ ↓
+Controller
+ ↓
+User Model
+ ↓
+MongoDB
+```
+
+Pour le dashboard :
+
+```text
+React
+ ↓
+GET http://localhost:5000/api/dashboard/donor
+ ↓
+Controller
+ ↓
+Donation + Payment + Receipt
+ ↓
+MongoDB
+ ↓
+Statistiques
+ ↓
+React
+```
+
+---
+
+# 22. Les principales API du backend
+
+Les grands groupes d'API sont :
+
+```text
+/api/auth
+/api/admin
+/api/zakat
+/api/campaigns
+/api/donations
+/api/payments
+/api/receipts
+/api/organizations
+/api/beneficiaries
+/api/distributions
+/api/dashboard
+/api/impact
+/api/audits
+```
+
+---
+
+# 23. Conclusion
+
+Le backend EasyZakat constitue le cœur logique de l'application.
+
+Il ne sert pas seulement à stocker les données. Il permet aussi de :
+
+- gérer les utilisateurs ;
+- sécuriser les accès ;
+- calculer et enregistrer la Zakat ;
+- gérer les campagnes ;
+- enregistrer les dons ;
+- gérer les paiements ;
+- traiter les webhooks ;
+- générer les reçus ;
+- gérer les organisations ;
+- gérer les bénéficiaires ;
+- suivre les distributions ;
+- calculer les statistiques ;
+- afficher l’impact ;
+- assurer la traçabilité grâce aux audits.
+
+L'objectif est donc d'avoir une chaîne complète et cohérente :
+
+```text
+Utilisateur
+   ↓
+Don
+   ↓
+Paiement
+   ↓
+Confirmation
+   ↓
+Reçu
+   ↓
+Redistribution
+   ↓
+Bénéficiaire
+   ↓
+Impact
+   ↓
+Audit
+```
+
+C’est cette logique qui permet à EasyZakat de relier le donneur, le paiement, l’organisation, le bénéficiaire et l’impact final.
