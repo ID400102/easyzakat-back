@@ -1,30 +1,25 @@
+
+const crypto = require("crypto");
 const Payment = require("../models/Payment");
 const Donation = require("../models/Donation");
 const generatePaymentReference = require("../utils/generateReference");
 const createAudit = require("../utils/createAudit");
 
-
 // ==========================================
 // CRÉER UN PAIEMENT
 // ==========================================
+
 const createPayment = async (req, res) => {
     try {
-        const { donation, provider, fees } = req.body;
-        const allowedProviders = [
-  "wave",
-  "orange_money",
-  "free_money",
-  "card",
-  "bank_transfer",
-];
+        const { donation, provider, fees, guestPaymentToken } = req.body;
 
-if (!allowedProviders.includes(provider)) {
-  return res.status(400).json({
-    message: "Moyen de paiement non pris en charge",
-    provider,
-    allowedProviders,
-  });
-}
+        const allowedProviders = [
+            "wave",
+            "orange_money",
+            "free_money",
+            "card",
+            "bank_transfer"
+        ];
 
         if (!donation || !provider) {
             return res.status(400).json({
@@ -32,8 +27,14 @@ if (!allowedProviders.includes(provider)) {
             });
         }
 
-        // Vérifier que le don existe
-        const existingDonation = await Donation.findById(donation);
+        if (!allowedProviders.includes(provider)) {
+            return res.status(400).json({
+                message: "Moyen de paiement non pris en charge"
+            });
+        }
+
+        const existingDonation = await Donation.findById(donation)
+            .select("+guestPaymentTokenHash +guestPaymentTokenExpires");
 
         if (!existingDonation) {
             return res.status(404).json({
@@ -41,23 +42,80 @@ if (!allowedProviders.includes(provider)) {
             });
         }
 
-        // Vérifier que le don appartient à l'utilisateur connecté
-        if (existingDonation.donor.toString() !== req.user.id) {
-            return res.status(403).json({
-                message: "Vous ne pouvez pas payer ce don"
+        // Vérifier l'accès au don
+        if (req.user) {
+            if (
+                !existingDonation.donor ||
+                existingDonation.donor.toString() !== req.user.id
+            ) {
+                return res.status(403).json({
+                    message: "Vous ne pouvez pas payer ce don"
+                });
+            }
+        } else {
+            if (
+                !guestPaymentToken ||
+                !existingDonation.guestPaymentTokenHash ||
+                !existingDonation.guestPaymentTokenExpires
+            ) {
+                return res.status(401).json({
+                    message: "Jeton de paiement invité manquant ou invalide"
+                });
+            }
+
+            if (existingDonation.guestPaymentTokenExpires < new Date()) {
+                return res.status(401).json({
+                    message: "Votre autorisation de paiement a expiré"
+                });
+            }
+
+            const tokenHash = crypto
+                .createHash("sha256")
+                .update(guestPaymentToken)
+                .digest("hex");
+
+            const expected = Buffer.from(
+                existingDonation.guestPaymentTokenHash,
+                "hex"
+            );
+
+            const received = Buffer.from(tokenHash, "hex");
+
+            if (
+                expected.length !== received.length ||
+                !crypto.timingSafeEqual(expected, received)
+            ) {
+                return res.status(403).json({
+                    message: "Jeton de paiement invalide"
+                });
+            }
+        }
+
+        if (existingDonation.status !== "pending") {
+            return res.status(400).json({
+                message: "Ce don ne peut plus être payé"
             });
         }
 
-        // Générer la référence interne EasyZakat
+        // Vérifier les frais
+        const paymentFees = Number(fees || 0);
+
+        if (!Number.isFinite(paymentFees) || paymentFees < 0) {
+            return res.status(400).json({
+                message: "Montant des frais invalide"
+            });
+        }
+
+        // Générer la référence EasyZakat
         const transactionReference = generatePaymentReference();
 
         // Créer le paiement
         const payment = await Payment.create({
             donation: existingDonation._id,
-            donor: req.user.id,
+            donor: existingDonation.donor || null,
             amount: existingDonation.amount,
             provider,
-            fees: fees || 0,
+            fees: paymentFees,
             status: "initiated",
             transactionReference
         });
@@ -71,16 +129,15 @@ if (!allowedProviders.includes(provider)) {
         console.error("Erreur création paiement :", error);
 
         res.status(500).json({
-            message: "Erreur lors de la création du paiement",
-            error: error.message
+            message: "Erreur lors de la création du paiement"
         });
     }
 };
 
-
 // ==========================================
 // RÉCUPÉRER MES PAIEMENTS
 // ==========================================
+
 const getMyPayments = async (req, res) => {
     try {
         const payments = await Payment.find({
@@ -98,16 +155,15 @@ const getMyPayments = async (req, res) => {
         console.error("Erreur récupération paiements :", error);
 
         res.status(500).json({
-            message: "Erreur lors de la récupération des paiements",
-            error: error.message
+            message: "Erreur lors de la récupération des paiements"
         });
     }
 };
 
-
 // ==========================================
 // RÉCUPÉRER UN PAIEMENT PAR SON ID
 // ==========================================
+
 const getPaymentById = async (req, res) => {
     try {
         const payment = await Payment.findById(req.params.id)
@@ -120,108 +176,41 @@ const getPaymentById = async (req, res) => {
             });
         }
 
-        // Vérifier que le paiement appartient à l'utilisateur connecté
-        if (payment.donor._id.toString() !== req.user.id) {
+        if (
+            !req.user ||
+            !payment.donor ||
+            payment.donor._id.toString() !== req.user.id
+        ) {
             return res.status(403).json({
                 message: "Accès non autorisé"
             });
         }
 
-        res.json({
-            payment
-        });
+        res.json({ payment });
 
     } catch (error) {
         console.error("Erreur récupération paiement :", error);
 
         res.status(500).json({
-            message: "Erreur lors de la récupération du paiement",
-            error: error.message
+            message: "Erreur lors de la récupération du paiement"
         });
     }
 };
-
 
 // ==========================================
 // MODIFIER LE STATUT D'UN PAIEMENT
 // ==========================================
+
 const updatePaymentStatus = async (req, res) => {
-    try {
-        const { status, transactionReference } = req.body;
-
-        const allowedStatuses = [
-            "initiated",
-            "pending",
-            "success",
-            "failed"
-        ];
-
-        if (!allowedStatuses.includes(status)) {
-            return res.status(400).json({
-                message: "Statut de paiement invalide"
-            });
-        }
-
-        const payment = await Payment.findById(req.params.id);
-
-        if (!payment) {
-            return res.status(404).json({
-                message: "Paiement introuvable"
-            });
-        }
-
-        if (payment.donor.toString() !== req.user.id) {
-            return res.status(403).json({
-                message: "Accès non autorisé"
-            });
-        }
-
-        payment.status = status;
-
-        if (transactionReference) {
-            payment.transactionReference = transactionReference;
-        }
-
-        await payment.save();
-
-        // Synchroniser le statut du don
-        const donation = await Donation.findById(payment.donation);
-
-        if (donation) {
-            if (status === "success") {
-                donation.status = "success";
-            } else if (status === "failed") {
-                donation.status = "failed";
-            } else {
-                donation.status = "pending";
-            }
-
-            if (transactionReference) {
-                donation.transactionReference = transactionReference;
-            }
-
-            await donation.save();
-        }
-
-        res.json({
-            message: "Statut du paiement modifié avec succès",
-            payment
-        });
-
-    } catch (error) {
-        console.error("Erreur modification paiement :", error);
-
-        res.status(500).json({
-            message: "Erreur lors de la modification du paiement",
-            error: error.message
-        });
-    }
+    return res.status(403).json({
+        message: "Le statut doit être confirmé par le prestataire de paiement"
+    });
 };
-
 
 // ==========================================
 // WEBHOOK PAIEMENT
 // ==========================================
+
 const paymentWebhook = async (req, res) => {
     try {
         const {
@@ -248,7 +237,6 @@ const paymentWebhook = async (req, res) => {
             });
         }
 
-        // Rechercher le paiement avec la référence EasyZakat
         const payment = await Payment.findOne({
             transactionReference
         });
@@ -259,18 +247,15 @@ const paymentWebhook = async (req, res) => {
             });
         }
 
-        // Éviter de traiter deux fois un paiement terminé
         if (
             payment.status === "success" ||
             payment.status === "failed"
         ) {
             return res.json({
-                message: "Paiement déjà traité",
-                payment
+                message: "Paiement déjà traité"
             });
         }
 
-        // Mettre à jour le paiement
         payment.status = status;
 
         if (providerReference) {
@@ -279,41 +264,38 @@ const paymentWebhook = async (req, res) => {
 
         await payment.save();
 
-        await createAudit({
-    action: "PAYMENT_STATUS_UPDATED",
-    entityType: "Payment",
-    entityId: payment._id,
-    user: payment.donor,
-    details: {
-        status: payment.status,
-        amount: payment.amount,
-        provider: payment.provider,
-        transactionReference: payment.transactionReference,
-        providerReference: payment.providerReference
-    }
-});
-
-        // Synchroniser la Donation
         const donation = await Donation.findById(payment.donation);
 
         if (donation) {
-
-            if (status === "success") {
-                donation.status = "success";
-            } else if (status === "failed") {
-                donation.status = "failed";
-            } else {
-                donation.status = "pending";
-            }
+            donation.status = status === "success"
+                ? "success"
+                : status === "failed"
+                    ? "failed"
+                    : "pending";
 
             donation.transactionReference =
                 payment.transactionReference;
 
-            donation.paymentMethod =
-                payment.provider;
+            donation.paymentMethod = payment.provider;
 
             await donation.save();
         }
+
+        // Journaliser uniquement si une fonction d'audit accepte
+        // les utilisateurs invités (donor peut être null).
+        await createAudit({
+            action: "PAYMENT_STATUS_UPDATED",
+            entityType: "Payment",
+            entityId: payment._id,
+            user: payment.donor,
+            details: {
+                status: payment.status,
+                amount: payment.amount,
+                provider: payment.provider,
+                transactionReference: payment.transactionReference,
+                providerReference: payment.providerReference
+            }
+        });
 
         res.json({
             message: "Webhook traité avec succès",
@@ -324,16 +306,15 @@ const paymentWebhook = async (req, res) => {
         console.error("Erreur webhook :", error);
 
         res.status(500).json({
-            message: "Erreur lors du traitement du webhook",
-            error: error.message
+            message: "Erreur lors du traitement du webhook"
         });
     }
 };
 
-
 // ==========================================
 // EXPORTS
 // ==========================================
+
 module.exports = {
     createPayment,
     getMyPayments,

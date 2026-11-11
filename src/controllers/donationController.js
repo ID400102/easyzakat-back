@@ -1,10 +1,11 @@
+
+const crypto = require("crypto");
 const Donation = require("../models/Donation");
 const Campaign = require("../models/Campaign");
 
 // ==========================================
 // CRÉER UN DON
 // ==========================================
-
 
 const createDonation = async (req, res) => {
     try {
@@ -17,14 +18,12 @@ const createDonation = async (req, res) => {
             guestInfo
         } = req.body;
 
-        // Vérifier les champs obligatoires
         if (!type || amount === undefined) {
             return res.status(400).json({
                 message: "Le type et le montant du don sont obligatoires"
             });
         }
 
-        // Vérifier le type de don
         const allowedTypes = [
             "zakat",
             "sadaqa",
@@ -38,7 +37,6 @@ const createDonation = async (req, res) => {
             });
         }
 
-        // Vérifier le montant
         const donationAmount = Number(amount);
 
         if (!Number.isFinite(donationAmount) || donationAmount <= 0) {
@@ -47,8 +45,13 @@ const createDonation = async (req, res) => {
             });
         }
 
-        // Vérifier la campagne
         if (campaign) {
+            if (!/^[0-9a-fA-F]{24}$/.test(String(campaign))) {
+                return res.status(400).json({
+                    message: "Identifiant de campagne invalide"
+                });
+            }
+
             const existingCampaign = await Campaign.findById(campaign);
 
             if (!existingCampaign) {
@@ -61,15 +64,41 @@ const createDonation = async (req, res) => {
         // Vérifier les coordonnées du visiteur
         if (!req.user) {
             if (
-                !guestInfo?.firstName ||
-                !guestInfo?.lastName ||
-                !guestInfo?.email ||
-                !guestInfo?.phone
+                !guestInfo?.firstName?.trim() ||
+                !guestInfo?.lastName?.trim() ||
+                !guestInfo?.email?.trim() ||
+                !guestInfo?.phone?.trim()
             ) {
                 return res.status(400).json({
                     message: "Le prénom, le nom, l'email et le téléphone sont obligatoires pour un don sans compte"
                 });
             }
+
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+            if (!emailRegex.test(guestInfo.email.trim())) {
+                return res.status(400).json({
+                    message: "Adresse email invalide"
+                });
+            }
+        }
+
+        // Générer un jeton temporaire pour le visiteur
+        let guestPaymentToken = null;
+        let guestPaymentTokenHash = null;
+        let guestPaymentTokenExpires = null;
+
+        if (!req.user) {
+            guestPaymentToken = crypto.randomBytes(32).toString("hex");
+
+            guestPaymentTokenHash = crypto
+                .createHash("sha256")
+                .update(guestPaymentToken)
+                .digest("hex");
+
+            guestPaymentTokenExpires = new Date(
+                Date.now() + 30 * 60 * 1000
+            );
         }
 
         // Créer le don
@@ -85,6 +114,9 @@ const createDonation = async (req, res) => {
                     phone: guestInfo.phone.trim()
                 },
 
+            guestPaymentTokenHash,
+            guestPaymentTokenExpires,
+
             campaign: campaign || null,
             type,
             amount: donationAmount,
@@ -95,22 +127,18 @@ const createDonation = async (req, res) => {
 
         res.status(201).json({
             message: "Don créé avec succès",
-            donation
+            donation,
+            guestPaymentToken
         });
 
     } catch (error) {
         console.error("Erreur création don :", error);
 
         res.status(500).json({
-            message: "Erreur lors de la création du don",
-            error: error.message
+            message: "Erreur lors de la création du don"
         });
     }
 };
-
-      
-
-
 
 // ==========================================
 // RÉCUPÉRER TOUS LES DONS
@@ -119,14 +147,8 @@ const createDonation = async (req, res) => {
 const getDonations = async (req, res) => {
     try {
         const donations = await Donation.find()
-            .populate(
-                "donor",
-                "firstName lastName email role"
-            )
-            .populate(
-                "campaign",
-                "name category objective collected status"
-            )
+            .populate("donor", "firstName lastName email role")
+            .populate("campaign", "name category objective collected status")
             .sort({ createdAt: -1 });
 
         res.json({
@@ -144,7 +166,6 @@ const getDonations = async (req, res) => {
     }
 };
 
-
 // ==========================================
 // RÉCUPÉRER MES DONS
 // ==========================================
@@ -154,10 +175,7 @@ const getMyDonations = async (req, res) => {
         const donations = await Donation.find({
             donor: req.user.id
         })
-            .populate(
-                "campaign",
-                "name category objective collected status"
-            )
+            .populate("campaign", "name category objective collected status")
             .sort({ createdAt: -1 });
 
         res.json({
@@ -175,7 +193,6 @@ const getMyDonations = async (req, res) => {
     }
 };
 
-
 // ==========================================
 // RÉCUPÉRER UN DON PAR ID
 // ==========================================
@@ -183,14 +200,8 @@ const getMyDonations = async (req, res) => {
 const getDonationById = async (req, res) => {
     try {
         const donation = await Donation.findById(req.params.id)
-            .populate(
-                "donor",
-                "firstName lastName email role"
-            )
-            .populate(
-                "campaign",
-                "name category objective collected status"
-            );
+            .populate("donor", "firstName lastName email role")
+            .populate("campaign", "name category objective collected status");
 
         if (!donation) {
             return res.status(404).json({
@@ -212,7 +223,6 @@ const getDonationById = async (req, res) => {
     }
 };
 
-
 // ==========================================
 // MODIFIER LE STATUT D'UN DON
 // ==========================================
@@ -233,9 +243,7 @@ const updateDonationStatus = async (req, res) => {
             });
         }
 
-        const donation = await Donation.findById(
-            req.params.id
-        );
+        const donation = await Donation.findById(req.params.id);
 
         if (!donation) {
             return res.status(404).json({
@@ -248,7 +256,7 @@ const updateDonationStatus = async (req, res) => {
         await donation.save();
 
         res.json({
-            message: "Statut du don modifié avec succès",
+            message: "Statut de don modifié avec succès",
             donation
         });
 
@@ -261,7 +269,6 @@ const updateDonationStatus = async (req, res) => {
         });
     }
 };
-
 
 // ==========================================
 // EXPORT
