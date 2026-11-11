@@ -10,7 +10,7 @@ const protect = require("../middleware/authMiddleware");
 const router = express.Router();
 
 // Calculer la Zakat
-router.post("/calculate", protect, calculateZakat);
+router.post("/calculate", calculateZakat);
 
 // Voir mes anciens calculs
 router.get("/my-calculations", protect, getMyCalculations);

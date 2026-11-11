@@ -54,8 +54,7 @@ const calculateZakat = async (req, res) => {
 
         // Enregistrer le calcul dans MongoDB
         const calculation = await ZakatCalculation.create({
-            user: req.user.id,
-
+            user: req.user ? req.user.id : null,
             cash: Number(cash || 0),
             bankBalance: Number(bankBalance || 0),
             savings: Number(savings || 0),
