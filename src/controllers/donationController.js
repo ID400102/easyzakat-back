@@ -5,6 +5,7 @@ const Campaign = require("../models/Campaign");
 // CRÉER UN DON
 // ==========================================
 
+
 const createDonation = async (req, res) => {
     try {
         const {
@@ -12,24 +13,41 @@ const createDonation = async (req, res) => {
             type,
             amount,
             anonymous,
-            paymentMethod
+            paymentMethod,
+            guestInfo
         } = req.body;
 
-        // Vérification des champs obligatoires
+        // Vérifier les champs obligatoires
         if (!type || amount === undefined) {
             return res.status(400).json({
                 message: "Le type et le montant du don sont obligatoires"
             });
         }
 
+        // Vérifier le type de don
+        const allowedTypes = [
+            "zakat",
+            "sadaqa",
+            "ramadan",
+            "urgence_sociale"
+        ];
+
+        if (!allowedTypes.includes(type)) {
+            return res.status(400).json({
+                message: "Type de don invalide"
+            });
+        }
+
         // Vérifier le montant
-        if (Number(amount) <= 0) {
+        const donationAmount = Number(amount);
+
+        if (!Number.isFinite(donationAmount) || donationAmount <= 0) {
             return res.status(400).json({
                 message: "Le montant du don doit être supérieur à 0"
             });
         }
 
-        // Si une campagne est indiquée, vérifier qu'elle existe
+        // Vérifier la campagne
         if (campaign) {
             const existingCampaign = await Campaign.findById(campaign);
 
@@ -40,13 +58,37 @@ const createDonation = async (req, res) => {
             }
         }
 
+        // Vérifier les coordonnées du visiteur
+        if (!req.user) {
+            if (
+                !guestInfo?.firstName ||
+                !guestInfo?.lastName ||
+                !guestInfo?.email ||
+                !guestInfo?.phone
+            ) {
+                return res.status(400).json({
+                    message: "Le prénom, le nom, l'email et le téléphone sont obligatoires pour un don sans compte"
+                });
+            }
+        }
+
         // Créer le don
         const donation = await Donation.create({
-            donor: req.user.id,
+            donor: req.user ? req.user.id : null,
+
+            guestInfo: req.user
+                ? undefined
+                : {
+                    firstName: guestInfo.firstName.trim(),
+                    lastName: guestInfo.lastName.trim(),
+                    email: guestInfo.email.trim().toLowerCase(),
+                    phone: guestInfo.phone.trim()
+                },
+
             campaign: campaign || null,
             type,
-            amount: Number(amount),
-            anonymous: anonymous || false,
+            amount: donationAmount,
+            anonymous: Boolean(anonymous),
             paymentMethod: paymentMethod || null,
             status: "pending"
         });
@@ -65,6 +107,9 @@ const createDonation = async (req, res) => {
         });
     }
 };
+
+      
+
 
 
 // ==========================================

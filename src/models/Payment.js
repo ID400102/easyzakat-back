@@ -9,10 +9,12 @@ const paymentSchema = new mongoose.Schema(
         },
 
         donor: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "User",
-            required: true
-        },
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null
+},
+
+       
 
         amount: {
             type: Number,
