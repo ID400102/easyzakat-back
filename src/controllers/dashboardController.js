@@ -6,6 +6,7 @@ const Receipt = require("../models/Receipt");
 // ==========================================
 // DASHBOARD DU DONNEUR
 // ==========================================
+
 const getDonorDashboard = async (req, res) => {
     try {
         // Identifiant du donneur connecté
@@ -40,7 +41,6 @@ const getDonorDashboard = async (req, res) => {
         // STATISTIQUES DES DONS
         // ==========================================
 
-        // Tous les dons enregistrés, même en attente
         const totalDonated = donations.reduce(
             (total, donation) => {
                 return total + Number(donation.amount || 0);
@@ -69,12 +69,10 @@ const getDonorDashboard = async (req, res) => {
         // STATISTIQUES DES PAIEMENTS
         // ==========================================
 
-        // Paiements réussis
         const successfulPayments = payments.filter(
             (payment) => payment.status === "success"
         );
 
-        // Paiements en attente ou initiés
         const pendingPayments = payments.filter(
             (payment) =>
                 payment.status === "initiated" ||
@@ -89,37 +87,19 @@ const getDonorDashboard = async (req, res) => {
             success: true,
 
             summary: {
-                // Total des dons enregistrés
                 totalDonated,
-
-                // Total réellement encaissé
                 totalCollected,
-
-                // Nombre de dons
                 donationsCount: donations.length,
-
-                // Dons confirmés
                 successfulDonationsCount: successfulDonations.length,
-
-                // Dons en attente
                 pendingDonationsCount: pendingDonations.length,
-
-                // Statistiques des paiements
                 paymentsCount: payments.length,
                 successfulPaymentsCount: successfulPayments.length,
                 pendingPaymentsCount: pendingPayments.length,
-
-                // Nombre de reçus
                 receiptsCount: receipts.length
             },
 
-            // Cinq derniers dons
             recentDonations: donations.slice(0, 5),
-
-            // Cinq derniers paiements
             recentPayments: payments.slice(0, 5),
-
-            // Cinq derniers reçus
             recentReceipts: receipts.slice(0, 5)
         });
 
@@ -138,6 +118,7 @@ const getDonorDashboard = async (req, res) => {
 // ==========================================
 // DASHBOARD ADMINISTRATEUR
 // ==========================================
+
 const getAdminDashboard = async (req, res) => {
     try {
         // Vérifier que l'utilisateur est administrateur
@@ -173,6 +154,57 @@ const getAdminDashboard = async (req, res) => {
         );
 
         // ==========================================
+        // COLLECTES RÉELLES PAR MOIS
+        // Année en cours
+        // ==========================================
+
+        const currentYear = new Date().getFullYear();
+
+        const monthlyTotals = await Donation.aggregate([
+            {
+                $match: {
+                    status: "success",
+                    createdAt: {
+                        $gte: new Date(currentYear, 0, 1),
+                        $lt: new Date(currentYear + 1, 0, 1)
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: {
+                        $month: "$createdAt"
+                    },
+                    total: {
+                        $sum: "$amount"
+                    }
+                }
+            },
+            {
+                $sort: {
+                    _id: 1
+                }
+            }
+        ]);
+
+        // Préparer les douze mois, même sans collecte
+        const monthlyCollections = Array.from(
+            { length: 12 },
+            (_, index) => {
+                const month = index + 1;
+
+                const found = monthlyTotals.find(
+                    (item) => item._id === month
+                );
+
+                return {
+                    month,
+                    total: found ? found.total : 0
+                };
+            }
+        );
+
+        // ==========================================
         // STATISTIQUES DES PAIEMENTS
         // ==========================================
 
@@ -186,6 +218,68 @@ const getAdminDashboard = async (req, res) => {
             },
             0
         );
+
+        // ==========================================
+        // RÉPARTITION DES PAIEMENTS PAR MÉTHODE
+        // Uniquement les paiements réussis
+        // ==========================================
+
+        const successfulPaymentCount = successfulPayments.length;
+
+        const mobileMoneyCount = successfulPayments.filter(
+            (payment) =>
+                ["wave", "orange_money", "free_money"].includes(
+                    payment.provider
+                )
+        ).length;
+
+        const cardPaymentCount = successfulPayments.filter(
+            (payment) => payment.provider === "card"
+        ).length;
+
+        const bankTransferCount = successfulPayments.filter(
+            (payment) => payment.provider === "bank_transfer"
+        ).length;
+
+        const paymentMethodDistribution = [
+            {
+                method: "mobile_money",
+                count: mobileMoneyCount,
+                percentage: successfulPaymentCount
+                    ? Number(
+                        (
+                            (mobileMoneyCount / successfulPaymentCount) * 100
+                        ).toFixed(1)
+                    )
+                    : 0
+            },
+            {
+                method: "card",
+                count: cardPaymentCount,
+                percentage: successfulPaymentCount
+                    ? Number(
+                        (
+                            (cardPaymentCount / successfulPaymentCount) * 100
+                        ).toFixed(1)
+                    )
+                    : 0
+            },
+            {
+                method: "bank_transfer",
+                count: bankTransferCount,
+                percentage: successfulPaymentCount
+                    ? Number(
+                        (
+                            (bankTransferCount / successfulPaymentCount) * 100
+                        ).toFixed(1)
+                    )
+                    : 0
+            }
+        ];
+
+        // ==========================================
+        // PAIEMENTS EN ATTENTE ET ÉCHOUÉS
+        // ==========================================
 
         const pendingPayments = await Payment.countDocuments({
             status: {
@@ -277,6 +371,12 @@ const getAdminDashboard = async (req, res) => {
 
         return res.status(200).json({
             success: true,
+
+            // Collectes mensuelles réelles
+            monthlyCollections,
+
+            // Répartition réelle par moyen de paiement
+            paymentMethodDistribution,
 
             summary: {
                 totalDonated,

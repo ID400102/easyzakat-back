@@ -1,8 +1,10 @@
+
 const express = require("express");
 
 const {
     createPayment,
     getMyPayments,
+    getAdminRecentPayments,
     getPaymentById,
     updatePaymentStatus,
     paymentWebhook
@@ -12,8 +14,10 @@ const protect = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
+// ==========================================
+// CRÉER UN PAIEMENT
+// ==========================================
 
-// Créer un paiement
 router.post("/", (req, res, next) => {
     const token = req.headers.authorization;
 
@@ -25,19 +29,42 @@ router.post("/", (req, res, next) => {
 }, createPayment);
 
 
-// Webhook du prestataire de paiement
+// ==========================================
+// WEBHOOK DU PRESTATAIRE
+// ==========================================
+
 router.post("/webhook", paymentWebhook);
 
 
-// Récupérer mes paiements
+// ==========================================
+// RÉCUPÉRER MES PAIEMENTS
+// ==========================================
+
 router.get("/my-payments", protect, getMyPayments);
 
 
-// Récupérer un paiement par son ID
+// ==========================================
+// PAIEMENTS RÉCENTS DE L'ADMINISTRATEUR
+// ==========================================
+
+router.get(
+    "/admin/recent",
+    protect,
+    getAdminRecentPayments
+);
+
+
+// ==========================================
+// RÉCUPÉRER UN PAIEMENT PAR SON ID
+// ==========================================
+
 router.get("/:id", protect, getPaymentById);
 
 
-// Modifier le statut d'un paiement
+// ==========================================
+// MODIFIER LE STATUT
+// ==========================================
+
 router.put("/:id/status", protect, updatePaymentStatus);
 
 
