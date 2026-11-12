@@ -134,6 +134,7 @@ const createPayment = async (req, res) => {
     }
 };
 
+
 // ==========================================
 // RÉCUPÉRER MES PAIEMENTS
 // ==========================================
@@ -159,6 +160,48 @@ const getMyPayments = async (req, res) => {
         });
     }
 };
+
+
+// ==========================================
+// RÉCUPÉRER LES 4 DERNIERS PAIEMENTS ADMIN
+// ==========================================
+
+const getAdminRecentPayments = async (req, res) => {
+    try {
+        // Vérifier les droits administrateur
+        if (
+            !req.user ||
+            !["admin", "superadmin"].includes(req.user.role)
+        ) {
+            return res.status(403).json({
+                message: "Accès réservé aux administrateurs"
+            });
+        }
+
+        // Récupérer les quatre derniers paiements
+        const payments = await Payment.find()
+            .populate("donor", "firstName lastName email")
+            .populate("donation", "guestInfo anonymous")
+            .sort({ createdAt: -1 })
+            .limit(4);
+
+        return res.status(200).json({
+            count: payments.length,
+            payments
+        });
+
+    } catch (error) {
+        console.error(
+            "Erreur récupération paiements admin :",
+            error
+        );
+
+        return res.status(500).json({
+            message: "Erreur lors de la récupération des paiements"
+        });
+    }
+};
+
 
 // ==========================================
 // RÉCUPÉRER UN PAIEMENT PAR SON ID
@@ -197,6 +240,7 @@ const getPaymentById = async (req, res) => {
     }
 };
 
+
 // ==========================================
 // MODIFIER LE STATUT D'UN PAIEMENT
 // ==========================================
@@ -206,6 +250,7 @@ const updatePaymentStatus = async (req, res) => {
         message: "Le statut doit être confirmé par le prestataire de paiement"
     });
 };
+
 
 // ==========================================
 // WEBHOOK PAIEMENT
@@ -281,8 +326,7 @@ const paymentWebhook = async (req, res) => {
             await donation.save();
         }
 
-        // Journaliser uniquement si une fonction d'audit accepte
-        // les utilisateurs invités (donor peut être null).
+        // Journaliser l'opération
         await createAudit({
             action: "PAYMENT_STATUS_UPDATED",
             entityType: "Payment",
@@ -311,6 +355,7 @@ const paymentWebhook = async (req, res) => {
     }
 };
 
+
 // ==========================================
 // EXPORTS
 // ==========================================
@@ -318,6 +363,7 @@ const paymentWebhook = async (req, res) => {
 module.exports = {
     createPayment,
     getMyPayments,
+    getAdminRecentPayments,
     getPaymentById,
     updatePaymentStatus,
     paymentWebhook
