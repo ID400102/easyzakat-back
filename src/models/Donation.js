@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const donationSchema = new mongoose.Schema(
@@ -5,7 +6,32 @@ const donationSchema = new mongoose.Schema(
         donor: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
-            required: true
+            default: null
+        },
+
+        // Informations du donateur sans compte
+        guestInfo: {
+            firstName: {
+                type: String,
+                trim: true,
+                default: ""
+            },
+            lastName: {
+                type: String,
+                trim: true,
+                default: ""
+            },
+            email: {
+                type: String,
+                trim: true,
+                lowercase: true,
+                default: ""
+            },
+            phone: {
+                type: String,
+                trim: true,
+                default: ""
+            }
         },
 
         campaign: {

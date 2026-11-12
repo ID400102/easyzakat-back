@@ -14,7 +14,15 @@ const router = express.Router();
 
 
 // Créer un paiement
-router.post("/", protect, createPayment);
+router.post("/", (req, res, next) => {
+    const token = req.headers.authorization;
+
+    if (token) {
+        return protect(req, res, next);
+    }
+
+    next();
+}, createPayment);
 
 
 // Webhook du prestataire de paiement

@@ -22,7 +22,7 @@ router.get("/my-donations", protect, getMyDonations);
 router.get("/:id", getDonationById);
 
 // Créer un don
-router.post("/", protect, createDonation);
+router.post("/", createDonation);
 
 // Modifier le statut
 router.put("/:id/status", protect, updateDonationStatus);
