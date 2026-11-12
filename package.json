@@ -1,12 +1,12 @@
 {
   "name": "easyzakat-backend",
-    "version": "1.0.0",
-    "description": "Backend EasyZakat",
-    "main": "server.js",
-    "scripts": {
-        "start": "node server.js",
-        "dev": "nodemon server.js"
-},
+  "version": "1.0.0",
+  "description": "Backend EasyZakat",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "bcryptjs": "^3.0.3",
