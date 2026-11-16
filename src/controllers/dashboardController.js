@@ -6,6 +6,7 @@ const Organization = require("../models/Organization");
 const Beneficiary = require("../models/Beneficiary");
 const Distribution = require("../models/Distribution");
 const User = require("../models/User");
+const mongoose = require("mongoose");
 
 const getAdminDashboard = async (req, res) => {
   try {
@@ -37,7 +38,6 @@ const getAdminDashboard = async (req, res) => {
         }
       ]),
 
-      // Montants réellement redistribués
       Distribution.aggregate([
         { $match: { status: "completed" } },
         {
@@ -49,7 +49,6 @@ const getAdminDashboard = async (req, res) => {
         }
       ]),
 
-      // Montants engagés : approuvés + terminés
       Distribution.aggregate([
         {
           $match: {
@@ -143,14 +142,11 @@ const getAdminDashboard = async (req, res) => {
     const totalDistributed = distributedAgg[0]?.total || 0;
     const totalAllocated = allocatedAgg[0]?.total || 0;
 
-    // Les fonds disponibles excluent les distributions approuvées
-    // et les distributions déjà terminées.
     const availableFunds = Math.max(
       0,
       totalCollected - totalAllocated
     );
 
-    // Montants actuellement réservés, pas encore redistribués.
     const reservedFunds = Math.max(
       0,
       totalAllocated - totalDistributed
@@ -370,23 +366,45 @@ const getPublicDashboard = async (req, res) => {
 
 const getDonorDashboard = async (req, res) => {
   try {
+    const donorId = new mongoose.Types.ObjectId(
+      String(req.user.id)
+    );
+
     const [
       donations,
       donationTotal,
+      successfulDonationTotal,
       paymentsCount,
       receiptsCount
     ] = await Promise.all([
-      Donation.find({ donor: req.user.id })
+      Donation.find({ donor: donorId })
         .populate("campaign", "name")
         .sort({ createdAt: -1 })
         .limit(5),
 
+      // Total de tous les dons enregistrés :
+      // pending + success. Les dons failed sont exclus.
       Donation.aggregate([
         {
           $match: {
-            donor: new (
-              require("mongoose").Types.ObjectId
-            )(String(req.user.id)),
+            donor: donorId,
+            status: { $in: ["pending", "success"] }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$amount" },
+            count: { $sum: 1 }
+          }
+        }
+      ]),
+
+      // Total réellement confirmé.
+      Donation.aggregate([
+        {
+          $match: {
+            donor: donorId,
             status: "success"
           }
         },
@@ -399,10 +417,10 @@ const getDonorDashboard = async (req, res) => {
         }
       ]),
 
-      Payment.countDocuments({ donor: req.user.id }),
+      Payment.countDocuments({ donor: donorId }),
 
       require("../models/Receipt").countDocuments({
-        donor: req.user.id
+        donor: donorId
       })
     ]);
 
@@ -410,6 +428,10 @@ const getDonorDashboard = async (req, res) => {
       summary: {
         totalDonated: donationTotal[0]?.total || 0,
         donationsCount: donationTotal[0]?.count || 0,
+        totalConfirmed:
+          successfulDonationTotal[0]?.total || 0,
+        successfulDonations:
+          successfulDonationTotal[0]?.count || 0,
         paymentsCount,
         receiptsCount
       },
@@ -417,6 +439,8 @@ const getDonorDashboard = async (req, res) => {
     });
 
   } catch (error) {
+    console.error("Erreur getDonorDashboard :", error);
+
     res.status(500).json({
       message: "Erreur lors du chargement de votre tableau de bord."
     });
