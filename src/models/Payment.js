@@ -9,12 +9,11 @@ const paymentSchema = new mongoose.Schema(
         },
 
         donor: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    default: null
-},
-
-       
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: false,
+            default: null
+        },
 
         amount: {
             type: Number,
@@ -47,12 +46,6 @@ const paymentSchema = new mongoose.Schema(
 
         transactionReference: {
             type: String,
-            unique: true,
-            sparse: true
-        },
-
-        providerReference: {
-            type: String,
             default: ""
         },
 
@@ -60,7 +53,10 @@ const paymentSchema = new mongoose.Schema(
             type: Number,
             default: 0,
             min: 0
-        }
+        },
+        providerReference: { type: String, default: "" },
+        guestPaymentTokenHash: { type: String, default: "" },
+        confirmedAt: { type: Date, default: null }
     },
     {
         timestamps: true

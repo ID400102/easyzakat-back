@@ -1,24 +1,15 @@
 const express = require("express");
-
-const {
-    getUsers
-} = require("../controllers/adminController");
-
-const {
-    getCampaigns,
-    createCampaign
-} = require("../controllers/adminCampaignController");
-
-
 const protect = require("../middleware/authMiddleware");
-
+const requireRoles = require("../middleware/requireRoles");
+const { getUsers } = require("../controllers/adminController");
+const { getCampaigns, createCampaign, updateCampaign, deleteCampaign } = require("../controllers/adminCampaignController");
+const { getDonations } = require("../controllers/donationController");
 const router = express.Router();
-
-// Utilisateurs
-router.get("/users", protect, getUsers);
-
-// Campagnes
-router.get("/campaigns", protect, getCampaigns);
-router.post("/campaigns", protect, createCampaign);
-
+router.use(protect, requireRoles("admin", "superadmin"));
+router.get("/users", getUsers);
+router.get("/donations", getDonations);
+router.get("/campaigns", getCampaigns);
+router.post("/campaigns", createCampaign);
+router.put("/campaigns/:id", updateCampaign);
+router.delete("/campaigns/:id", deleteCampaign);
 module.exports = router;

@@ -1,50 +1,12 @@
 const express = require("express");
-
-const {
-    createOrganization,
-    getOrganizations,
-    getMyOrganization,
-    getOrganizationById,
-    updateOrganization,
-    deleteOrganization,
-    updateOrganizationStatus
-} = require("../controllers/organizationController");
-
 const protect = require("../middleware/authMiddleware");
-
+const requireRoles = require("../middleware/requireRoles");
+const c = require("../controllers/organizationController");
 const router = express.Router();
-
-
-// Créer une organisation
-router.post("/", protect, createOrganization);
-
-
-// Récupérer toutes les organisations
-router.get("/", getOrganizations);
-
-
-// Récupérer mon organisation
-router.get("/my-organization", protect, getMyOrganization);
-
-
-// Modifier le statut - ADMIN
-router.put(
-    "/:id/status",
-    protect,
-    updateOrganizationStatus
-);
-
-
-// Récupérer une organisation
-router.get("/:id", getOrganizationById);
-
-
-// Modifier une organisation
-router.put("/:id", protect, updateOrganization);
-
-
-// Désactiver une organisation
-router.delete("/:id", protect, deleteOrganization);
-
-
+router.use(protect, requireRoles("admin", "superadmin"));
+router.get("/", c.getOrganizations);
+router.post("/", c.createOrganization);
+router.put("/:id", c.updateOrganization);
+router.put("/:id/status", c.updateOrganizationStatus);
+router.delete("/:id", c.deleteOrganization);
 module.exports = router;

@@ -1,45 +1,12 @@
 const express = require("express");
-
-const {
-    createBeneficiary,
-    getBeneficiaries,
-    getBeneficiaryById,
-    updateBeneficiary,
-    updateBeneficiaryStatus,
-    deleteBeneficiary
-} = require("../controllers/beneficiaryController");
-
 const protect = require("../middleware/authMiddleware");
-
+const requireRoles = require("../middleware/requireRoles");
+const c = require("../controllers/beneficiaryController");
 const router = express.Router();
-
-
-// Créer un bénéficiaire
-router.post("/", protect, createBeneficiary);
-
-
-// Récupérer tous les bénéficiaires
-router.get("/", getBeneficiaries);
-
-
-// Modifier le statut - ADMIN
-router.put(
-    "/:id/status",
-    protect,
-    updateBeneficiaryStatus
-);
-
-
-// Récupérer un bénéficiaire
-router.get("/:id", getBeneficiaryById);
-
-
-// Modifier un bénéficiaire
-router.put("/:id", protect, updateBeneficiary);
-
-
-// Désactiver un bénéficiaire
-router.delete("/:id", protect, deleteBeneficiary);
-
-
+router.use(protect, requireRoles("admin", "superadmin"));
+router.get("/", c.getBeneficiaries);
+router.post("/", c.createBeneficiary);
+router.put("/:id", c.updateBeneficiary);
+router.put("/:id/status", c.updateBeneficiaryStatus);
+router.delete("/:id", c.deleteBeneficiary);
 module.exports = router;

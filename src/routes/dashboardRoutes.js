@@ -1,33 +1,9 @@
 const express = require("express");
-
-const {
-    getDonorDashboard,
-    getAdminDashboard
-} = require("../controllers/dashboardController");
-
 const protect = require("../middleware/authMiddleware");
-
+const requireRoles = require("../middleware/requireRoles");
+const c = require("../controllers/dashboardController");
 const router = express.Router();
-
-
-// ==========================================
-// DASHBOARD DONNEUR
-// ==========================================
-router.get(
-    "/donor",
-    protect,
-    getDonorDashboard
-);
-
-
-// ==========================================
-// DASHBOARD ADMIN
-// ==========================================
-router.get(
-    "/admin",
-    protect,
-    getAdminDashboard
-);
-
-
+router.get("/", c.getPublicDashboard);
+router.get("/donor", protect, c.getDonorDashboard);
+router.get("/admin", protect, requireRoles("admin", "superadmin"), c.getAdminDashboard);
 module.exports = router;

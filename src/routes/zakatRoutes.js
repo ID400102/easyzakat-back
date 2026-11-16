@@ -1,18 +1,8 @@
 const express = require("express");
-
-const {
-    calculateZakat,
-    getMyCalculations
-} = require("../controllers/zakatController");
-
+const c = require("../controllers/zakatController");
+const optionalAuth = require("../middleware/optionalAuth");
 const protect = require("../middleware/authMiddleware");
-
 const router = express.Router();
-
-// Calculer la Zakat
-router.post("/calculate", calculateZakat);
-
-// Voir mes anciens calculs
-router.get("/my-calculations", protect, getMyCalculations);
-
+router.post("/calculate", optionalAuth, c.calculateZakat);
+router.get("/my-calculations", protect, c.getMyCalculations);
 module.exports = router;

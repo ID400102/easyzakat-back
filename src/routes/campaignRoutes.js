@@ -9,6 +9,7 @@ const {
 } = require("../controllers/campaignController");
 
 const protect = require("../middleware/authMiddleware");
+const requireRoles = require("../middleware/requireRoles");
 
 const router = express.Router();
 
@@ -19,12 +20,12 @@ router.get("/", getCampaigns);
 router.get("/:id", getCampaignById);
 
 // Créer une campagne
-router.post("/", protect, createCampaign);
+router.post("/", protect, requireRoles("organization", "admin", "superadmin"), createCampaign);
 
 // Modifier une campagne
-router.put("/:id", protect, updateCampaign);
+router.put("/:id", protect, requireRoles("organization", "admin", "superadmin"), updateCampaign);
 
 // Supprimer une campagne
-router.delete("/:id", protect, deleteCampaign);
+router.delete("/:id", protect, requireRoles("organization", "admin", "superadmin"), deleteCampaign);
 
 module.exports = router;

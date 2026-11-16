@@ -1,430 +1,430 @@
 
 const Donation = require("../models/Donation");
 const Payment = require("../models/Payment");
-const Receipt = require("../models/Receipt");
-
-// ==========================================
-// DASHBOARD DU DONNEUR
-// ==========================================
-
-const getDonorDashboard = async (req, res) => {
-    try {
-        // Identifiant du donneur connecté
-        const donorId = req.user.id;
-
-        if (!donorId) {
-            return res.status(401).json({
-                message: "Utilisateur non authentifié"
-            });
-        }
-
-        // Récupérer uniquement les dons de ce donneur
-        const donations = await Donation.find({
-            donor: donorId
-        })
-            .populate("campaign", "name category")
-            .sort({ createdAt: -1 });
-
-        // Récupérer uniquement les paiements de ce donneur
-        const payments = await Payment.find({
-            donor: donorId
-        })
-            .populate("donation")
-            .sort({ createdAt: -1 });
-
-        // Récupérer uniquement les reçus de ce donneur
-        const receipts = await Receipt.find({
-            donor: donorId
-        }).sort({ createdAt: -1 });
-
-        // ==========================================
-        // STATISTIQUES DES DONS
-        // ==========================================
-
-        const totalDonated = donations.reduce(
-            (total, donation) => {
-                return total + Number(donation.amount || 0);
-            },
-            0
-        );
-
-        // Dons réellement confirmés
-        const successfulDonations = donations.filter(
-            (donation) => donation.status === "success"
-        );
-
-        const totalCollected = successfulDonations.reduce(
-            (total, donation) => {
-                return total + Number(donation.amount || 0);
-            },
-            0
-        );
-
-        // Dons en attente
-        const pendingDonations = donations.filter(
-            (donation) => donation.status === "pending"
-        );
-
-        // ==========================================
-        // STATISTIQUES DES PAIEMENTS
-        // ==========================================
-
-        const successfulPayments = payments.filter(
-            (payment) => payment.status === "success"
-        );
-
-        const pendingPayments = payments.filter(
-            (payment) =>
-                payment.status === "initiated" ||
-                payment.status === "pending"
-        );
-
-        // ==========================================
-        // RÉPONSE DU DASHBOARD DONNEUR
-        // ==========================================
-
-        return res.status(200).json({
-            success: true,
-
-            summary: {
-                totalDonated,
-                totalCollected,
-                donationsCount: donations.length,
-                successfulDonationsCount: successfulDonations.length,
-                pendingDonationsCount: pendingDonations.length,
-                paymentsCount: payments.length,
-                successfulPaymentsCount: successfulPayments.length,
-                pendingPaymentsCount: pendingPayments.length,
-                receiptsCount: receipts.length
-            },
-
-            recentDonations: donations.slice(0, 5),
-            recentPayments: payments.slice(0, 5),
-            recentReceipts: receipts.slice(0, 5)
-        });
-
-    } catch (error) {
-        console.error("Erreur dashboard donneur :", error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Erreur lors de la récupération du dashboard",
-            error: error.message
-        });
-    }
-};
-
-
-// ==========================================
-// DASHBOARD ADMINISTRATEUR
-// ==========================================
+const Campaign = require("../models/Campaign");
+const Organization = require("../models/Organization");
+const Beneficiary = require("../models/Beneficiary");
+const Distribution = require("../models/Distribution");
+const User = require("../models/User");
 
 const getAdminDashboard = async (req, res) => {
-    try {
-        // Vérifier que l'utilisateur est administrateur
-        const isAdmin = [
-            "admin",
-            "superadmin"
-        ].includes(req.user.role);
+  try {
+    const now = new Date();
+    const yearStart = new Date(now.getFullYear(), 0, 1);
 
-        if (!isAdmin) {
-            return res.status(403).json({
-                message: "Accès réservé aux administrateurs"
-            });
+    const [
+      collectedAgg,
+      distributedAgg,
+      allocatedAgg,
+      monthly,
+      paymentMethods,
+      paymentCounts,
+      campaigns,
+      organizations,
+      beneficiaries,
+      donors,
+      recentPayments,
+      distributionTotalCount
+    ] = await Promise.all([
+      Donation.aggregate([
+        { $match: { status: "success" } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$amount" },
+            count: { $sum: 1 }
+          }
         }
+      ]),
 
-        // Importer les modèles nécessaires
-        const Organization = require("../models/Organization");
-        const Beneficiary = require("../models/Beneficiary");
-        const Distribution = require("../models/Distribution");
+      // Montants réellement redistribués
+      Distribution.aggregate([
+        { $match: { status: "completed" } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$amount" },
+            count: { $sum: 1 }
+          }
+        }
+      ]),
 
-        // ==========================================
-        // STATISTIQUES DES DONS
-        // ==========================================
+      // Montants engagés : approuvés + terminés
+      Distribution.aggregate([
+        {
+          $match: {
+            status: { $in: ["approved", "completed"] }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$amount" }
+          }
+        }
+      ]),
 
-        const successfulDonations = await Donation.find({
-            status: "success"
-        });
+      Donation.aggregate([
+        {
+          $match: {
+            status: "success",
+            createdAt: { $gte: yearStart }
+          }
+        },
+        {
+          $group: {
+            _id: { $month: "$createdAt" },
+            total: { $sum: "$amount" },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { _id: 1 } }
+      ]),
 
-        const totalDonated = successfulDonations.reduce(
-            (total, donation) => {
-                return total + Number(donation.amount || 0);
-            },
-            0
-        );
+      Payment.aggregate([
+        { $match: { status: "success" } },
+        {
+          $group: {
+            _id: "$provider",
+            count: { $sum: 1 },
+            amount: { $sum: "$amount" }
+          }
+        }
+      ]),
 
-        // ==========================================
-        // COLLECTES RÉELLES PAR MOIS
-        // Année en cours
-        // ==========================================
+      Payment.aggregate([
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 }
+          }
+        }
+      ]),
 
-        const currentYear = new Date().getFullYear();
+      Campaign.aggregate([
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 }
+          }
+        }
+      ]),
 
-        const monthlyTotals = await Donation.aggregate([
-            {
-                $match: {
-                    status: "success",
-                    createdAt: {
-                        $gte: new Date(currentYear, 0, 1),
-                        $lt: new Date(currentYear + 1, 0, 1)
-                    }
-                }
-            },
-            {
-                $group: {
-                    _id: {
-                        $month: "$createdAt"
-                    },
-                    total: {
-                        $sum: "$amount"
-                    }
-                }
-            },
-            {
-                $sort: {
-                    _id: 1
-                }
-            }
-        ]);
+      Organization.aggregate([
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 }
+          }
+        }
+      ]),
 
-        // Préparer les douze mois, même sans collecte
-        const monthlyCollections = Array.from(
-            { length: 12 },
-            (_, index) => {
-                const month = index + 1;
+      Beneficiary.aggregate([
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 }
+          }
+        }
+      ]),
 
-                const found = monthlyTotals.find(
-                    (item) => item._id === month
-                );
+      User.countDocuments({ role: "donor" }),
 
-                return {
-                    month,
-                    total: found ? found.total : 0
-                };
-            }
-        );
+      Payment.find()
+        .populate("donation", "anonymous guestInfo campaign")
+        .populate("donor", "firstName lastName email")
+        .sort({ createdAt: -1 })
+        .limit(8),
 
-        // ==========================================
-        // STATISTIQUES DES PAIEMENTS
-        // ==========================================
+      Distribution.countDocuments()
+    ]);
 
-        const successfulPayments = await Payment.find({
-            status: "success"
-        });
+    const totalCollected = collectedAgg[0]?.total || 0;
+    const totalDistributed = distributedAgg[0]?.total || 0;
+    const totalAllocated = allocatedAgg[0]?.total || 0;
 
-        const totalPayments = successfulPayments.reduce(
-            (total, payment) => {
-                return total + Number(payment.amount || 0);
-            },
-            0
-        );
+    // Les fonds disponibles excluent les distributions approuvées
+    // et les distributions déjà terminées.
+    const availableFunds = Math.max(
+      0,
+      totalCollected - totalAllocated
+    );
 
-        // ==========================================
-        // RÉPARTITION DES PAIEMENTS PAR MÉTHODE
-        // Uniquement les paiements réussis
-        // ==========================================
+    // Montants actuellement réservés, pas encore redistribués.
+    const reservedFunds = Math.max(
+      0,
+      totalAllocated - totalDistributed
+    );
 
-        const successfulPaymentCount = successfulPayments.length;
+    const countBy = (rows, key) =>
+      rows.find((x) => x._id === key)?.count || 0;
 
-        const mobileMoneyCount = successfulPayments.filter(
-            (payment) =>
-                ["wave", "orange_money", "free_money"].includes(
-                    payment.provider
-                )
-        ).length;
+    const monthlyCollections = Array.from(
+      { length: 12 },
+      (_, i) => ({
+        month: i + 1,
+        total:
+          monthly.find((x) => x._id === i + 1)?.total || 0,
+        amount:
+          monthly.find((x) => x._id === i + 1)?.total || 0,
+        count:
+          monthly.find((x) => x._id === i + 1)?.count || 0
+      })
+    );
 
-        const cardPaymentCount = successfulPayments.filter(
-            (payment) => payment.provider === "card"
-        ).length;
+    const successfulPaymentCount = paymentMethods.reduce(
+      (sum, item) => sum + item.count,
+      0
+    );
 
-        const bankTransferCount = successfulPayments.filter(
-            (payment) => payment.provider === "bank_transfer"
-        ).length;
+    const groupedMethods = paymentMethods.reduce(
+      (acc, item) => {
+        const method = [
+          "wave",
+          "orange_money",
+          "free_money"
+        ].includes(item._id)
+          ? "mobile_money"
+          : item._id;
 
-        const paymentMethodDistribution = [
-            {
-                method: "mobile_money",
-                count: mobileMoneyCount,
-                percentage: successfulPaymentCount
-                    ? Number(
-                        (
-                            (mobileMoneyCount / successfulPaymentCount) * 100
-                        ).toFixed(1)
-                    )
-                    : 0
-            },
-            {
-                method: "card",
-                count: cardPaymentCount,
-                percentage: successfulPaymentCount
-                    ? Number(
-                        (
-                            (cardPaymentCount / successfulPaymentCount) * 100
-                        ).toFixed(1)
-                    )
-                    : 0
-            },
-            {
-                method: "bank_transfer",
-                count: bankTransferCount,
-                percentage: successfulPaymentCount
-                    ? Number(
-                        (
-                            (bankTransferCount / successfulPaymentCount) * 100
-                        ).toFixed(1)
-                    )
-                    : 0
-            }
-        ];
+        const current = acc.get(method) || {
+          method,
+          count: 0,
+          amount: 0,
+          providers: []
+        };
 
-        // ==========================================
-        // PAIEMENTS EN ATTENTE ET ÉCHOUÉS
-        // ==========================================
+        current.count += item.count;
+        current.amount += item.amount;
+        current.providers.push(item._id);
 
-        const pendingPayments = await Payment.countDocuments({
-            status: {
-                $in: ["initiated", "pending"]
-            }
-        });
+        acc.set(method, current);
 
-        const failedPayments = await Payment.countDocuments({
-            status: "failed"
-        });
+        return acc;
+      },
+      new Map()
+    );
 
-        // ==========================================
-        // ORGANISATIONS
-        // ==========================================
+    const paymentMethodDistribution = Array.from(
+      groupedMethods.values()
+    ).map((item) => ({
+      ...item,
+      percentage: successfulPaymentCount
+        ? Number(
+            (
+              (item.count / successfulPaymentCount) *
+              100
+            ).toFixed(1)
+          )
+        : 0
+    }));
 
-        const organizationsCount =
-            await Organization.countDocuments({
-                isActive: true
-            });
+    const distributionStatuses = await Distribution.aggregate([
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 }
+        }
+      }
+    ]);
 
-        const approvedOrganizations =
-            await Organization.countDocuments({
-                isActive: true,
-                status: "approved"
-            });
+    const summary = {
+      totalDonated: totalCollected,
+      totalCollected,
+      totalDistributed,
+      reservedFunds,
+      availableFunds,
 
-        const pendingOrganizations =
-            await Organization.countDocuments({
-                isActive: true,
-                status: "pending"
-            });
+      redistributionRate: totalCollected
+        ? Number(
+            ((totalDistributed / totalCollected) * 100).toFixed(1)
+          )
+        : 0,
 
-        // ==========================================
-        // BÉNÉFICIAIRES
-        // ==========================================
+      successfulDonations: collectedAgg[0]?.count || 0,
 
-        const beneficiariesCount =
-            await Beneficiary.countDocuments({
-                isActive: true
-            });
+      pendingPayments:
+        countBy(paymentCounts, "initiated") +
+        countBy(paymentCounts, "pending"),
 
-        const approvedBeneficiaries =
-            await Beneficiary.countDocuments({
-                isActive: true,
-                status: "approved"
-            });
+      failedPayments: countBy(paymentCounts, "failed"),
+      successfulPayments: countBy(paymentCounts, "success"),
 
-        const pendingBeneficiaries =
-            await Beneficiary.countDocuments({
-                isActive: true,
-                status: "pending"
-            });
+      totalDonors: donors,
 
-        // ==========================================
-        // DISTRIBUTIONS
-        // ==========================================
+      activeCampaigns: countBy(campaigns, "active"),
+      totalCampaigns: campaigns.reduce(
+        (n, x) => n + x.count,
+        0
+      ),
 
-        const distributionsCount =
-            await Distribution.countDocuments();
+      totalOrganizations: organizations.reduce(
+        (n, x) => n + x.count,
+        0
+      ),
 
-        const completedDistributions =
-            await Distribution.find({
-                status: "completed"
-            });
+      approvedOrganizations: countBy(
+        organizations,
+        "approved"
+      ),
 
-        const totalDistributed =
-            completedDistributions.reduce(
-                (total, distribution) => {
-                    return total + Number(distribution.amount || 0);
-                },
-                0
-            );
+      pendingOrganizations: countBy(
+        organizations,
+        "pending"
+      ),
 
-        const pendingDistributions =
-            await Distribution.countDocuments({
-                status: "pending"
-            });
+      totalBeneficiaries: beneficiaries.reduce(
+        (n, x) => n + x.count,
+        0
+      ),
 
-        // ==========================================
-        // REÇUS
-        // ==========================================
+      approvedBeneficiaries: countBy(
+        beneficiaries,
+        "approved"
+      ),
 
-        const receiptsCount =
-            await Receipt.countDocuments();
+      pendingBeneficiaries: countBy(
+        beneficiaries,
+        "pending"
+      ),
 
-        // ==========================================
-        // RÉSULTAT ADMINISTRATEUR
-        // ==========================================
+      completedDistributions:
+        distributedAgg[0]?.count || 0,
 
-        return res.status(200).json({
-            success: true,
+      pendingDistributions: countBy(
+        distributionStatuses,
+        "pending"
+      ),
 
-            // Collectes mensuelles réelles
-            monthlyCollections,
+      organizationsCount: organizations.reduce(
+        (n, x) => n + x.count,
+        0
+      ),
 
-            // Répartition réelle par moyen de paiement
-            paymentMethodDistribution,
+      beneficiariesCount: beneficiaries.reduce(
+        (n, x) => n + x.count,
+        0
+      ),
 
-            summary: {
-                totalDonated,
-                donationsCount: successfulDonations.length,
+      distributionsCount: distributionTotalCount
+    };
 
-                totalPayments,
-                successfulPaymentsCount: successfulPayments.length,
+    res.json({
+      summary,
+      monthlyCollections,
+      paymentMethodDistribution,
+      recentPayments
+    });
 
-                pendingPayments,
-                failedPayments,
-
-                organizationsCount,
-                approvedOrganizations,
-                pendingOrganizations,
-
-                beneficiariesCount,
-                approvedBeneficiaries,
-                pendingBeneficiaries,
-
-                distributionsCount,
-                totalDistributed,
-                pendingDistributions,
-
-                receiptsCount
-            }
-        });
-
-    } catch (error) {
-        console.error(
-            "Erreur dashboard administrateur :",
-            error
-        );
-
-        return res.status(500).json({
-            success: false,
-            message:
-                "Erreur lors de la récupération du dashboard administrateur",
-            error: error.message
-        });
-    }
+  } catch (error) {
+    res.status(500).json({
+      message: "Erreur lors du chargement du tableau de bord.",
+      error: error.message
+    });
+  }
 };
 
+const getPublicDashboard = async (req, res) => {
+  try {
+    const [
+      donations,
+      donationCount,
+      beneficiariesCount,
+      organizationsCount
+    ] = await Promise.all([
+      Donation.aggregate([
+        { $match: { status: "success" } },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$amount" }
+          }
+        }
+      ]),
 
-// ==========================================
-// EXPORTS
-// ==========================================
+      Donation.countDocuments({ status: "success" }),
+
+      Beneficiary.countDocuments({
+        status: { $in: ["approved", "completed"] }
+      }),
+
+      Organization.countDocuments({
+        status: "approved",
+        isActive: true
+      })
+    ]);
+
+    res.json({
+      totalDonated: donations[0]?.total || 0,
+      donationsCount: donationCount,
+      beneficiariesCount,
+      organizationsCount
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      message: "Statistiques publiques indisponibles."
+    });
+  }
+};
+
+const getDonorDashboard = async (req, res) => {
+  try {
+    const [
+      donations,
+      donationTotal,
+      paymentsCount,
+      receiptsCount
+    ] = await Promise.all([
+      Donation.find({ donor: req.user.id })
+        .populate("campaign", "name")
+        .sort({ createdAt: -1 })
+        .limit(5),
+
+      Donation.aggregate([
+        {
+          $match: {
+            donor: new (
+              require("mongoose").Types.ObjectId
+            )(String(req.user.id)),
+            status: "success"
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$amount" },
+            count: { $sum: 1 }
+          }
+        }
+      ]),
+
+      Payment.countDocuments({ donor: req.user.id }),
+
+      require("../models/Receipt").countDocuments({
+        donor: req.user.id
+      })
+    ]);
+
+    res.json({
+      summary: {
+        totalDonated: donationTotal[0]?.total || 0,
+        donationsCount: donationTotal[0]?.count || 0,
+        paymentsCount,
+        receiptsCount
+      },
+      recentDonations: donations
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      message: "Erreur lors du chargement de votre tableau de bord."
+    });
+  }
+};
 
 module.exports = {
-    getDonorDashboard,
-    getAdminDashboard
+  getAdminDashboard,
+  getPublicDashboard,
+  getDonorDashboard
 };
