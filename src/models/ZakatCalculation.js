@@ -3,12 +3,11 @@ const mongoose = require("mongoose");
 const zakatCalculationSchema = new mongoose.Schema(
     {
         user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
-    required: false,
-    default: null
-},
-        
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: false,
+            default: null
+        },
 
         // Actifs
         cash: {

@@ -2,368 +2,62 @@ const Beneficiary = require("../models/Beneficiary");
 const Organization = require("../models/Organization");
 const createAudit = require("../utils/createAudit");
 
-
-// ==========================================
-// CRÉER UN BÉNÉFICIAIRE
-// ==========================================
-const createBeneficiary = async (req, res) => {
-    try {
-        const {
-            firstName,
-            lastName,
-            phone,
-            email,
-            address,
-            city,
-            country,
-            category,
-            description,
-            amountNeeded,
-            organization
-        } = req.body;
-
-        // Champs obligatoires
-        if (!firstName || !lastName || !category) {
-            return res.status(400).json({
-                message: "Le prénom, le nom et la catégorie sont obligatoires"
-            });
-        }
-
-        // Vérifier l'organisation si elle est fournie
-        if (organization) {
-            const existingOrganization = await Organization.findById(
-                organization
-            );
-
-            if (!existingOrganization) {
-                return res.status(404).json({
-                    message: "Organisation introuvable"
-                });
-            }
-
-            if (existingOrganization.status !== "approved") {
-                return res.status(400).json({
-                    message: "L'organisation doit être approuvée"
-                });
-            }
-        }
-
-        const beneficiary = await Beneficiary.create({
-            firstName,
-            lastName,
-            phone,
-            email,
-            address,
-            city,
-            country,
-            category,
-            description,
-            amountNeeded: amountNeeded || 0,
-            amountReceived: 0,
-            organization: organization || null,
-            createdBy: req.user.id,
-            status: "pending"
-        });
-
-        res.status(201).json({
-            message: "Bénéficiaire créé avec succès",
-            beneficiary
-        });
-
-    } catch (error) {
-        console.error("Erreur création bénéficiaire :", error);
-
-        res.status(500).json({
-            message: "Erreur lors de la création du bénéficiaire",
-            error: error.message
-        });
-    }
-};
-
-
-// ==========================================
-// RÉCUPÉRER TOUS LES BÉNÉFICIAIRES
-// ==========================================
 const getBeneficiaries = async (req, res) => {
-    try {
-        const beneficiaries = await Beneficiary.find({
-            isActive: true
-        })
-            .populate(
-                "organization",
-                "name email type status"
-            )
-            .populate(
-                "createdBy",
-                "firstName lastName email"
-            )
-            .sort({ createdAt: -1 });
-
-        res.json({
-            count: beneficiaries.length,
-            beneficiaries
-        });
-
-    } catch (error) {
-        console.error("Erreur récupération bénéficiaires :", error);
-
-        res.status(500).json({
-            message: "Erreur lors de la récupération des bénéficiaires",
-            error: error.message
-        });
-    }
+  try {
+    const beneficiaries = await Beneficiary.find().populate("organization", "name email status").populate("createdBy", "firstName lastName").sort({ createdAt: -1 });
+    res.json({ count: beneficiaries.length, beneficiaries });
+  } catch (error) { res.status(500).json({ message: "Erreur lors de la récupération des bénéficiaires." }); }
 };
 
-
-// ==========================================
-// RÉCUPÉRER UN BÉNÉFICIAIRE PAR ID
-// ==========================================
-const getBeneficiaryById = async (req, res) => {
-    try {
-        const beneficiary = await Beneficiary.findById(req.params.id)
-            .populate(
-                "organization",
-                "name email type status"
-            )
-            .populate(
-                "createdBy",
-                "firstName lastName email"
-            );
-
-        if (!beneficiary) {
-            return res.status(404).json({
-                message: "Bénéficiaire introuvable"
-            });
-        }
-
-        res.json({
-            beneficiary
-        });
-
-    } catch (error) {
-        console.error("Erreur récupération bénéficiaire :", error);
-
-        res.status(500).json({
-            message: "Erreur lors de la récupération du bénéficiaire",
-            error: error.message
-        });
-    }
+const createBeneficiary = async (req, res) => {
+  try {
+    const { firstName, lastName, amountNeeded, organization } = req.body;
+    if (!firstName?.trim() || !lastName?.trim() || !organization || !Number.isFinite(Number(amountNeeded)) || Number(amountNeeded) <= 0) return res.status(400).json({ message: "Prénom, nom, organisation et montant nécessaire positif sont obligatoires." });
+    const org = await Organization.findById(organization);
+    if (!org || !org.isActive || org.status !== "approved") return res.status(400).json({ message: "Le bénéficiaire doit être rattaché à une organisation approuvée et active." });
+    const beneficiary = await Beneficiary.create({ ...req.body, amountNeeded: Number(amountNeeded), organization, createdBy: req.user.id, status: "pending" });
+    await createAudit({ action: "BENEFICIARY_CREATED", entityType: "Beneficiary", entityId: beneficiary._id, user: req.user.id, details: { status: beneficiary.status, organization }, ip: req.ip });
+    res.status(201).json({ message: "Bénéficiaire créé.", beneficiary });
+  } catch (error) { res.status(400).json({ message: "Création du bénéficiaire impossible.", error: error.message }); }
 };
 
-
-// ==========================================
-// MODIFIER UN BÉNÉFICIAIRE
-// ==========================================
 const updateBeneficiary = async (req, res) => {
-    try {
-        const beneficiary = await Beneficiary.findById(req.params.id);
-
-        if (!beneficiary) {
-            return res.status(404).json({
-                message: "Bénéficiaire introuvable"
-            });
-        }
-
-        const isCreator =
-            beneficiary.createdBy &&
-            beneficiary.createdBy.toString() === req.user.id;
-
-        const isAdmin = [
-            "admin",
-            "superadmin"
-        ].includes(req.user.role);
-
-        if (!isCreator && !isAdmin) {
-            return res.status(403).json({
-                message: "Accès non autorisé"
-            });
-        }
-
-        // Vérifier l'organisation si elle est modifiée
-        if (req.body.organization) {
-            const organization = await Organization.findById(
-                req.body.organization
-            );
-
-            if (!organization) {
-                return res.status(404).json({
-                    message: "Organisation introuvable"
-                });
-            }
-
-            if (organization.status !== "approved") {
-                return res.status(400).json({
-                    message: "L'organisation doit être approuvée"
-                });
-            }
-        }
-
-        const allowedFields = [
-            "firstName",
-            "lastName",
-            "phone",
-            "email",
-            "address",
-            "city",
-            "country",
-            "category",
-            "description",
-            "amountNeeded",
-            "organization"
-        ];
-
-        allowedFields.forEach((field) => {
-            if (req.body[field] !== undefined) {
-                beneficiary[field] = req.body[field];
-            }
-        });
-
-        await beneficiary.save();
-        await createAudit({
-    action: "BENEFICIARY_STATUS_UPDATED",
-    entityType: "Beneficiary",
-    entityId: beneficiary._id,
-    user: req.user.id,
-    details: {
-        status,
-        firstName: beneficiary.firstName,
-        lastName: beneficiary.lastName
+  try {
+    const beneficiary = await Beneficiary.findById(req.params.id);
+    if (!beneficiary) return res.status(404).json({ message: "Bénéficiaire introuvable." });
+    const allowed = ["firstName", "lastName", "phone", "email", "address", "city", "country", "category", "description", "amountNeeded", "organization"];
+    const before = {};
+    for (const key of allowed) if (req.body[key] !== undefined) { before[key] = beneficiary[key]; beneficiary[key] = key === "amountNeeded" ? Number(req.body[key]) : req.body[key]; }
+    if (beneficiary.amountNeeded < beneficiary.amountReceived) return res.status(400).json({ message: "Le montant nécessaire ne peut pas être inférieur au montant déjà reçu." });
+    if (req.body.organization) {
+      const org = await Organization.findById(req.body.organization);
+      if (!org || org.status !== "approved" || !org.isActive) return res.status(400).json({ message: "L'organisation doit être approuvée et active." });
     }
-});
-
-        res.json({
-            message: "Bénéficiaire modifié avec succès",
-            beneficiary
-        });
-
-    } catch (error) {
-        console.error("Erreur modification bénéficiaire :", error);
-
-        res.status(500).json({
-            message: "Erreur lors de la modification du bénéficiaire",
-            error: error.message
-        });
-    }
+    await beneficiary.save();
+    await createAudit({ action: "BENEFICIARY_UPDATED", entityType: "Beneficiary", entityId: beneficiary._id, user: req.user.id, details: { changedFields: Object.keys(before) }, ip: req.ip });
+    res.json({ message: "Bénéficiaire mis à jour.", beneficiary });
+  } catch (error) { res.status(400).json({ message: "Modification du bénéficiaire impossible.", error: error.message }); }
 };
 
-
-// ==========================================
-// CHANGER LE STATUT D'UN BÉNÉFICIAIRE
-// ADMIN UNIQUEMENT
-// ==========================================
 const updateBeneficiaryStatus = async (req, res) => {
-    try {
-        const { status } = req.body;
-
-        const allowedStatuses = [
-            "pending",
-            "approved",
-            "rejected",
-            "completed"
-        ];
-
-        if (!allowedStatuses.includes(status)) {
-            return res.status(400).json({
-                message: "Statut de bénéficiaire invalide"
-            });
-        }
-
-        const isAdmin = [
-            "admin",
-            "superadmin"
-        ].includes(req.user.role);
-
-        if (!isAdmin) {
-            return res.status(403).json({
-                message: "Accès réservé aux administrateurs"
-            });
-        }
-
-        const beneficiary = await Beneficiary.findById(
-            req.params.id
-        );
-
-        if (!beneficiary) {
-            return res.status(404).json({
-                message: "Bénéficiaire introuvable"
-            });
-        }
-
-        beneficiary.status = status;
-
-        await beneficiary.save();
-
-        res.json({
-            message: "Statut du bénéficiaire modifié avec succès",
-            beneficiary
-        });
-
-    } catch (error) {
-        console.error(
-            "Erreur modification statut bénéficiaire :",
-            error
-        );
-
-        res.status(500).json({
-            message: "Erreur lors de la modification du statut",
-            error: error.message
-        });
-    }
+  try {
+    const allowed = ["pending", "approved", "rejected", "completed"];
+    if (!allowed.includes(req.body.status)) return res.status(400).json({ message: "Statut du bénéficiaire invalide." });
+    const beneficiary = await Beneficiary.findById(req.params.id);
+    if (!beneficiary) return res.status(404).json({ message: "Bénéficiaire introuvable." });
+    const oldStatus = beneficiary.status; beneficiary.status = req.body.status; await beneficiary.save();
+    await createAudit({ action: "BENEFICIARY_STATUS_UPDATED", entityType: "Beneficiary", entityId: beneficiary._id, user: req.user.id, details: { oldStatus, newStatus: beneficiary.status }, ip: req.ip });
+    res.json({ message: "Statut du bénéficiaire mis à jour.", beneficiary });
+  } catch (error) { res.status(400).json({ message: "Mise à jour du statut impossible.", error: error.message }); }
 };
 
-
-// ==========================================
-// DÉSACTIVER UN BÉNÉFICIAIRE
-// ==========================================
 const deleteBeneficiary = async (req, res) => {
-    try {
-        const beneficiary = await Beneficiary.findById(req.params.id);
-
-        if (!beneficiary) {
-            return res.status(404).json({
-                message: "Bénéficiaire introuvable"
-            });
-        }
-
-        const isCreator =
-            beneficiary.createdBy &&
-            beneficiary.createdBy.toString() === req.user.id;
-
-        const isAdmin = [
-            "admin",
-            "superadmin"
-        ].includes(req.user.role);
-
-        if (!isCreator && !isAdmin) {
-            return res.status(403).json({
-                message: "Accès non autorisé"
-            });
-        }
-
-        beneficiary.isActive = false;
-
-        await beneficiary.save();
-
-        res.json({
-            message: "Bénéficiaire désactivé avec succès"
-        });
-
-    } catch (error) {
-        console.error("Erreur désactivation bénéficiaire :", error);
-
-        res.status(500).json({
-            message: "Erreur lors de la désactivation du bénéficiaire",
-            error: error.message
-        });
-    }
+  try {
+    const beneficiary = await Beneficiary.findById(req.params.id);
+    if (!beneficiary) return res.status(404).json({ message: "Bénéficiaire introuvable." });
+    beneficiary.isActive = false; await beneficiary.save();
+    await createAudit({ action: "BENEFICIARY_DEACTIVATED", entityType: "Beneficiary", entityId: beneficiary._id, user: req.user.id, details: {}, ip: req.ip });
+    res.json({ message: "Bénéficiaire désactivé.", beneficiary });
+  } catch (error) { res.status(400).json({ message: "Désactivation impossible.", error: error.message }); }
 };
-
-
-module.exports = {
-    createBeneficiary,
-    getBeneficiaries,
-    getBeneficiaryById,
-    updateBeneficiary,
-    updateBeneficiaryStatus,
-    deleteBeneficiary
-};
+module.exports = { getBeneficiaries, createBeneficiary, updateBeneficiary, updateBeneficiaryStatus, deleteBeneficiary };

@@ -1,4 +1,5 @@
 const ZakatCalculation = require("../models/ZakatCalculation");
+const Setting = require("../models/Setting");
 
 // Calculer la Zakat
 const calculateZakat = async (req, res) => {
@@ -17,11 +18,23 @@ const calculateZakat = async (req, res) => {
             nisab
         } = req.body;
 
-        // Vérification du Nisab
-        if (nisab === undefined || nisab === null) {
-            return res.status(400).json({
-                message: "Le Nisab est obligatoire"
-            });
+        // Le Nisab et le taux sont administrés dans les paramètres EasyZakat.
+        const [nisabSetting, rateSetting] = await Promise.all([
+            Setting.findOne({ key: "nisab" }),
+            Setting.findOne({ key: "zakatRate" })
+        ]);
+        const configuredNisab = Number(nisabSetting?.value ?? 500000);
+        const zakatRate = Number(rateSetting?.value ?? 2.5);
+        if (!Number.isFinite(configuredNisab) || configuredNisab <= 0 || !Number.isFinite(zakatRate) || zakatRate <= 0) {
+            return res.status(500).json({ message: "Les paramètres de calcul de la Zakat sont invalides." });
+        }
+
+        const numericInputs = { cash, bankBalance, savings, gold, silver, tradeGoods, receivables, otherAssets, shortTermDebt, immediateObligations };
+        for (const [field, raw] of Object.entries(numericInputs)) {
+            const value = Number(raw ?? 0);
+            if (!Number.isFinite(value) || value < 0) {
+                return res.status(400).json({ message: `Valeur invalide pour le champ ${field}.` });
+            }
         }
 
         // Calcul du total des actifs
@@ -47,14 +60,15 @@ const calculateZakat = async (req, res) => {
         );
 
         // Taux de Zakat : 2,5 %
-        const zakatAmount = zakatableBase * 0.025;
+        const zakatAmount = zakatableBase * (zakatRate / 100);
 
         // Vérification du Nisab
-        const eligibleForZakat = zakatableBase >= Number(nisab);
+        const eligibleForZakat = zakatableBase >= configuredNisab;
 
         // Enregistrer le calcul dans MongoDB
         const calculation = await ZakatCalculation.create({
-            user: req.user ? req.user.id : null,
+            user: req.user?.id || null,
+
             cash: Number(cash || 0),
             bankBalance: Number(bankBalance || 0),
             savings: Number(savings || 0),
@@ -71,7 +85,7 @@ const calculateZakat = async (req, res) => {
             totalDeductions,
             zakatableBase,
             zakatAmount,
-            nisab: Number(nisab)
+            nisab: configuredNisab
         });
 
         res.status(201).json({
@@ -81,8 +95,8 @@ const calculateZakat = async (req, res) => {
                 totalAssets,
                 totalDeductions,
                 zakatableBase,
-                nisab: Number(nisab),
-                zakatRate: 2.5,
+                nisab: configuredNisab,
+                zakatRate,
                 zakatAmount,
                 eligibleForZakat
             },

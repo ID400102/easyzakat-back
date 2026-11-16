@@ -1,4 +1,3 @@
-
 const mongoose = require("mongoose");
 
 const donationSchema = new mongoose.Schema(
@@ -6,33 +5,19 @@ const donationSchema = new mongoose.Schema(
         donor: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
+            required: false,
             default: null
         },
 
-        // Informations du donateur sans compte
         guestInfo: {
-            firstName: {
-                type: String,
-                trim: true,
-                default: ""
-            },
-            lastName: {
-                type: String,
-                trim: true,
-                default: ""
-            },
-            email: {
-                type: String,
-                trim: true,
-                lowercase: true,
-                default: ""
-            },
-            phone: {
-                type: String,
-                trim: true,
-                default: ""
-            }
+            firstName: { type: String, default: "" },
+            lastName: { type: String, default: "" },
+            email: { type: String, default: "" },
+            phone: { type: String, default: "" },
+            city: { type: String, default: "" }
         },
+        guestPaymentTokenHash: { type: String, default: "" },
+        guestPaymentTokenExpiresAt: { type: Date, default: null },
 
         campaign: {
             type: mongoose.Schema.Types.ObjectId,

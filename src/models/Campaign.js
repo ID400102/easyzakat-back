@@ -14,6 +14,17 @@ const campaignSchema = new mongoose.Schema(
             required: true
         },
 
+        partnerOrganization: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Organization",
+            default: null
+        },
+
+        socialObjective: { type: String, default: "", trim: true },
+        region: { type: String, default: "", trim: true },
+        department: { type: String, default: "", trim: true },
+        commune: { type: String, default: "", trim: true },
+
         category: {
             type: String,
             enum: [

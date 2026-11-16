@@ -1,19 +1,6 @@
 const express = require("express");
-
-const {
-    createReceipt,
-    getMyReceipts,
-    getReceiptById
-} = require("../controllers/receiptController");
-
-const protect = require("../middleware/authMiddleware");
-
+const optionalAuth = require("../middleware/optionalAuth");
+const { createReceipt } = require("../controllers/receiptController");
 const router = express.Router();
-
-router.post("/", protect, createReceipt);
-
-router.get("/my-receipts", protect, getMyReceipts);
-
-router.get("/:id", protect, getReceiptById);
-
+router.post("/", optionalAuth, createReceipt);
 module.exports = router;

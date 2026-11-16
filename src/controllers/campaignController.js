@@ -1,4 +1,3 @@
-
 const Campaign = require("../models/Campaign");
 
 // ==========================================
@@ -19,6 +18,7 @@ const createCampaign = async (req, res) => {
             impactReport
         } = req.body;
 
+        // Vérification des champs obligatoires
         if (
             !name ||
             !category ||
@@ -32,33 +32,20 @@ const createCampaign = async (req, res) => {
             });
         }
 
-        const validCategories = [
-            "zakat",
-            "sadaqa",
-            "ramadan",
-            "urgence_sociale"
-        ];
-
-        if (!validCategories.includes(category)) {
+        // Vérifier que l'objectif est valide
+        if (Number(objective) < 0) {
             return res.status(400).json({
-                message: "Catégorie de campagne invalide"
+                message: "L'objectif doit être positif"
             });
         }
 
-        const amount = Number(objective);
-
-        if (!Number.isFinite(amount) || amount < 0) {
-            return res.status(400).json({
-                message: "L'objectif doit être un nombre positif"
-            });
-        }
-
+        // Créer la campagne
         const campaign = await Campaign.create({
             name,
             organization: req.user.id,
             category,
             description,
-            objective: amount,
+            objective: Number(objective),
             collected: 0,
             startDate,
             endDate,
@@ -67,7 +54,7 @@ const createCampaign = async (req, res) => {
             impactReport
         });
 
-        return res.status(201).json({
+        res.status(201).json({
             message: "Campagne créée avec succès",
             campaign
         });
@@ -75,7 +62,7 @@ const createCampaign = async (req, res) => {
     } catch (error) {
         console.error("Erreur création campagne :", error);
 
-        return res.status(500).json({
+        res.status(500).json({
             message: "Erreur lors de la création de la campagne",
             error: error.message
         });
@@ -89,14 +76,15 @@ const createCampaign = async (req, res) => {
 
 const getCampaigns = async (req, res) => {
     try {
-        const campaigns = await Campaign.find()
+        const campaigns = await Campaign.find({ status: "active" })
+            .populate("partnerOrganization", "name email status")
             .populate(
                 "organization",
                 "firstName lastName email role"
             )
             .sort({ createdAt: -1 });
 
-        return res.json({
+        res.json({
             count: campaigns.length,
             campaigns
         });
@@ -104,7 +92,7 @@ const getCampaigns = async (req, res) => {
     } catch (error) {
         console.error("Erreur récupération campagnes :", error);
 
-        return res.status(500).json({
+        res.status(500).json({
             message: "Erreur lors de la récupération des campagnes",
             error: error.message
         });
@@ -118,7 +106,8 @@ const getCampaigns = async (req, res) => {
 
 const getCampaignById = async (req, res) => {
     try {
-        const campaign = await Campaign.findById(req.params.id)
+        const campaign = await Campaign.findOne({ _id: req.params.id, status: "active" })
+            .populate("partnerOrganization", "name email status")
             .populate(
                 "organization",
                 "firstName lastName email role"
@@ -130,14 +119,12 @@ const getCampaignById = async (req, res) => {
             });
         }
 
-        return res.json({
+        res.json({
             campaign
         });
 
     } catch (error) {
-        console.error("Erreur récupération campagne :", error);
-
-        return res.status(500).json({
+        res.status(500).json({
             message: "Erreur lors de la récupération de la campagne",
             error: error.message
         });
@@ -147,12 +134,13 @@ const getCampaignById = async (req, res) => {
 
 // ==========================================
 // MODIFIER UNE CAMPAGNE
-// PROPRIÉTAIRE OU ADMINISTRATEUR
 // ==========================================
 
 const updateCampaign = async (req, res) => {
     try {
-        const campaign = await Campaign.findById(req.params.id);
+        const campaign = await Campaign.findById(
+            req.params.id
+        );
 
         if (!campaign) {
             return res.status(404).json({
@@ -160,18 +148,11 @@ const updateCampaign = async (req, res) => {
             });
         }
 
-        // Vérifier les droits
-        const isOwner =
-            campaign.organization &&
-            campaign.organization.toString() ===
-                req.user.id.toString();
-
-        const isAdmin = [
-            "admin",
-            "superadmin"
-        ].includes(req.user.role);
-
-        if (!isOwner && !isAdmin) {
+        // Vérifier que l'utilisateur est le propriétaire
+        if (
+            campaign.organization.toString() !==
+            req.user.id.toString()
+        ) {
             return res.status(403).json({
                 message: "Vous n'êtes pas autorisé à modifier cette campagne"
             });
@@ -190,64 +171,39 @@ const updateCampaign = async (req, res) => {
             status
         } = req.body;
 
-        const validCategories = [
-            "zakat",
-            "sadaqa",
-            "ramadan",
-            "urgence_sociale"
-        ];
+        campaign.name = name ?? campaign.name;
+        campaign.category = category ?? campaign.category;
+        campaign.description =
+            description ?? campaign.description;
 
-        const validStatuses = [
-            "draft",
-            "validation",
-            "active",
-            "terminated"
-        ];
+        campaign.objective =
+            objective !== undefined
+                ? Number(objective)
+                : campaign.objective;
 
-        if (
-            category !== undefined &&
-            !validCategories.includes(category)
-        ) {
-            return res.status(400).json({
-                message: "Catégorie de campagne invalide"
-            });
+        campaign.startDate =
+            startDate ?? campaign.startDate;
+
+        campaign.endDate =
+            endDate ?? campaign.endDate;
+
+        campaign.location =
+            location ?? campaign.location;
+
+        campaign.media =
+            media ?? campaign.media;
+
+        campaign.impactReport =
+            impactReport ?? campaign.impactReport;
+
+        if (status !== undefined && !["admin", "superadmin"].includes(req.user.role)) {
+            return res.status(403).json({ message: "Seul EasyZakat peut valider ou publier une campagne." });
         }
-
-        if (
-            status !== undefined &&
-            !validStatuses.includes(status)
-        ) {
-            return res.status(400).json({
-                message: "Statut de campagne invalide"
-            });
-        }
-
-        if (name !== undefined) campaign.name = name;
-        if (category !== undefined) campaign.category = category;
-        if (description !== undefined) campaign.description = description;
-
-        if (objective !== undefined) {
-            const amount = Number(objective);
-
-            if (!Number.isFinite(amount) || amount < 0) {
-                return res.status(400).json({
-                    message: "Objectif invalide"
-                });
-            }
-
-            campaign.objective = amount;
-        }
-
-        if (startDate !== undefined) campaign.startDate = startDate;
-        if (endDate !== undefined) campaign.endDate = endDate;
-        if (location !== undefined) campaign.location = location;
-        if (media !== undefined) campaign.media = media;
-        if (impactReport !== undefined) campaign.impactReport = impactReport;
-        if (status !== undefined) campaign.status = status;
+        campaign.status = status ?? campaign.status;
 
         await campaign.save();
 
-        return res.json({
+        res.json({
             message: "Campagne modifiée avec succès",
             campaign
         });
@@ -255,7 +211,7 @@ const updateCampaign = async (req, res) => {
     } catch (error) {
         console.error("Erreur modification campagne :", error);
 
-        return res.status(500).json({
+        res.status(500).json({
             message: "Erreur lors de la modification de la campagne",
             error: error.message
         });
@@ -265,12 +221,13 @@ const updateCampaign = async (req, res) => {
 
 // ==========================================
 // SUPPRIMER UNE CAMPAGNE
-// PROPRIÉTAIRE OU ADMINISTRATEUR
 // ==========================================
 
 const deleteCampaign = async (req, res) => {
     try {
-        const campaign = await Campaign.findById(req.params.id);
+        const campaign = await Campaign.findById(
+            req.params.id
+        );
 
         if (!campaign) {
             return res.status(404).json({
@@ -278,33 +235,31 @@ const deleteCampaign = async (req, res) => {
             });
         }
 
-        // Vérifier les droits
-        const isOwner =
-            campaign.organization &&
-            campaign.organization.toString() ===
-                req.user.id.toString();
-
-        const isAdmin = [
-            "admin",
-            "superadmin"
-        ].includes(req.user.role);
-
-        if (!isOwner && !isAdmin) {
+        // Vérifier que l'utilisateur est le propriétaire
+        if (
+            campaign.organization.toString() !==
+            req.user.id.toString()
+        ) {
             return res.status(403).json({
                 message: "Vous n'êtes pas autorisé à supprimer cette campagne"
             });
         }
 
+        const Donation = require("../models/Donation");
+        const linkedDonations = await Donation.countDocuments({ campaign: campaign._id });
+        if (linkedDonations > 0) {
+            return res.status(409).json({ message: "Cette campagne possède déjà des dons et ne peut pas être supprimée." });
+        }
         await campaign.deleteOne();
 
-        return res.json({
+        res.json({
             message: "Campagne supprimée avec succès"
         });
 
     } catch (error) {
         console.error("Erreur suppression campagne :", error);
 
-        return res.status(500).json({
+        res.status(500).json({
             message: "Erreur lors de la suppression de la campagne",
             error: error.message
         });
@@ -313,7 +268,7 @@ const deleteCampaign = async (req, res) => {
 
 
 // ==========================================
-// EXPORTS
+// EXPORT
 // ==========================================
 
 module.exports = {

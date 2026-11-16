@@ -1,393 +1,390 @@
+
+const mongoose = require("mongoose");
 const Distribution = require("../models/Distribution");
 const Beneficiary = require("../models/Beneficiary");
 const Organization = require("../models/Organization");
+const Donation = require("../models/Donation");
+const Campaign = require("../models/Campaign");
 const createAudit = require("../utils/createAudit");
 
+class ControllerError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
 
-// ==========================================
-// CRÉER UNE DISTRIBUTION
-// ==========================================
-const createDistribution = async (req, res) => {
-    try {
-        const {
-            beneficiary,
-            organization,
-            campaign,
-            amount,
-            donationType,
-            reason
-        } = req.body;
-
-        if (
-            !beneficiary ||
-            !organization ||
-            !amount ||
-            !donationType
-        ) {
-            return res.status(400).json({
-                message:
-                    "Le bénéficiaire, l'organisation, le montant et le type de don sont obligatoires"
-            });
-        }
-
-        // Vérifier le bénéficiaire
-        const existingBeneficiary =
-            await Beneficiary.findById(beneficiary);
-
-        if (!existingBeneficiary) {
-            return res.status(404).json({
-                message: "Bénéficiaire introuvable"
-            });
-        }
-
-        if (existingBeneficiary.status !== "approved") {
-            return res.status(400).json({
-                message: "Le bénéficiaire doit être approuvé"
-            });
-        }
-
-        // Vérifier l'organisation
-        const existingOrganization =
-            await Organization.findById(organization);
-
-        if (!existingOrganization) {
-            return res.status(404).json({
-                message: "Organisation introuvable"
-            });
-        }
-
-        if (existingOrganization.status !== "approved") {
-            return res.status(400).json({
-                message: "L'organisation doit être approuvée"
-            });
-        }
-
-        // Le bénéficiaire doit appartenir à l'organisation
-        if (
-            existingBeneficiary.organization &&
-            existingBeneficiary.organization.toString() !==
-                organization
-        ) {
-            return res.status(400).json({
-                message:
-                    "Le bénéficiaire n'appartient pas à cette organisation"
-            });
-        }
-
-        // Vérifier le montant demandé
-        const amountNumber = Number(amount);
-
-        if (isNaN(amountNumber) || amountNumber <= 0) {
-            return res.status(400).json({
-                message: "Le montant doit être supérieur à 0"
-            });
-        }
-
-        if (
-            existingBeneficiary.amountNeeded > 0 &&
-            existingBeneficiary.amountReceived + amountNumber >
-                existingBeneficiary.amountNeeded
-        ) {
-            return res.status(400).json({
-                message:
-                    "Le montant dépasse le besoin restant du bénéficiaire"
-            });
-        }
-
-        const distribution = await Distribution.create({
-            beneficiary,
-            organization,
-            campaign: campaign || null,
-            amount: amountNumber,
-            donationType,
-            reason: reason || "",
-            status: "pending",
-            createdBy: req.user.id
-        });
-
-        res.status(201).json({
-            message: "Distribution créée avec succès",
-            distribution
-        });
-
-    } catch (error) {
-        console.error("Erreur création distribution :", error);
-
-        res.status(500).json({
-            message: "Erreur lors de la création de la distribution",
-            error: error.message
-        });
-    }
-};
-
-
-// ==========================================
-// RÉCUPÉRER TOUTES LES DISTRIBUTIONS
-// ==========================================
 const getDistributions = async (req, res) => {
-    try {
-        const distributions = await Distribution.find()
-            .populate(
-                "beneficiary",
-                "firstName lastName category amountNeeded amountReceived status"
-            )
-            .populate(
-                "organization",
-                "name email type status"
-            )
-            .populate(
-                "campaign",
-                "name category objective"
-            )
-            .populate(
-                "createdBy",
-                "firstName lastName email"
-            )
-            .sort({ createdAt: -1 });
+  try {
+    const distributions = await Distribution.find()
+      .populate("beneficiary", "firstName lastName category amountNeeded amountReceived amountReserved status")
+      .populate("organization", "name status")
+      .populate("campaign", "name")
+      .populate("createdBy", "firstName lastName")
+      .populate("validatedBy", "firstName lastName")
+      .sort({ createdAt: -1 });
 
-        res.json({
-            count: distributions.length,
-            distributions
-        });
-
-    } catch (error) {
-        console.error(
-            "Erreur récupération distributions :",
-            error
-        );
-
-        res.status(500).json({
-            message:
-                "Erreur lors de la récupération des distributions",
-            error: error.message
-        });
-    }
+    res.json({ count: distributions.length, distributions });
+  } catch (error) {
+    res.status(500).json({
+      message: "Erreur lors de la récupération des distributions.",
+      error: error.message
+    });
+  }
 };
 
+const createDistribution = async (req, res) => {
+  try {
+    const {
+      beneficiary,
+      organization,
+      campaign = null,
+      amount,
+      donationType = "sadaqa",
+      reason = "",
+      method = "cash",
+      proofUrl = ""
+    } = req.body;
 
-// ==========================================
-// RÉCUPÉRER UNE DISTRIBUTION PAR ID
-// ==========================================
-const getDistributionById = async (req, res) => {
-    try {
-        const distribution =
-            await Distribution.findById(req.params.id)
-                .populate("beneficiary")
-                .populate("organization")
-                .populate("campaign")
-                .populate(
-                    "createdBy",
-                    "firstName lastName email"
-                );
-
-        if (!distribution) {
-            return res.status(404).json({
-                message: "Distribution introuvable"
-            });
-        }
-
-        res.json({
-            distribution
-        });
-
-    } catch (error) {
-        console.error(
-            "Erreur récupération distribution :",
-            error
-        );
-
-        res.status(500).json({
-            message:
-                "Erreur lors de la récupération de la distribution",
-            error: error.message
-        });
+    if (
+      !beneficiary ||
+      !organization ||
+      !Number.isFinite(Number(amount)) ||
+      Number(amount) <= 0
+    ) {
+      return res.status(400).json({
+        message: "Bénéficiaire, organisation et montant positif sont obligatoires."
+      });
     }
-};
 
+    const [b, o, collected] = await Promise.all([
+      Beneficiary.findById(beneficiary),
+      Organization.findById(organization),
+      Donation.aggregate([
+        { $match: { status: "success" } },
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+      ])
+    ]);
 
-// ==========================================
-// APPROUVER / TERMINER UNE DISTRIBUTION
-// ==========================================
-const updateDistributionStatus = async (req, res) => {
-    try {
-        const { status } = req.body;
+    if (!b || !b.isActive || b.status !== "approved") {
+      return res.status(400).json({
+        message: "Le bénéficiaire doit être approuvé et actif."
+      });
+    }
 
-        const allowedStatuses = [
-            "pending",
-            "approved",
-            "completed",
-            "cancelled"
-        ];
+    if (!o || !o.isActive || o.status !== "approved") {
+      return res.status(400).json({
+        message: "L'organisation doit être approuvée et active."
+      });
+    }
 
-        if (!allowedStatuses.includes(status)) {
-            return res.status(400).json({
-                message: "Statut de distribution invalide"
-            });
-        }
+    if (String(b.organization) !== String(o._id)) {
+      return res.status(400).json({
+        message: "L'organisation ne correspond pas au dossier du bénéficiaire."
+      });
+    }
 
-        const isAdmin = [
-            "admin",
-            "superadmin"
-        ].includes(req.user.role);
+    if (campaign) {
+      const linkedCampaign = await Campaign.findById(campaign);
 
-        if (!isAdmin) {
-            return res.status(403).json({
-                message: "Accès réservé aux administrateurs"
-            });
-        }
+      if (!linkedCampaign || linkedCampaign.status !== "active") {
+        return res.status(400).json({
+          message: "La campagne associée doit être active."
+        });
+      }
+    }
 
-        const distribution =
-            await Distribution.findById(req.params.id);
+    const totalCollected = collected[0]?.total || 0;
 
-        if (!distribution) {
-            return res.status(404).json({
-                message: "Distribution introuvable"
-            });
-        }
+    const allocated = await Distribution.aggregate([
+      { $match: { status: { $in: ["approved", "completed"] } } },
+      { $group: { _id: null, total: { $sum: "$amount" } } }
+    ]);
 
-        // Lorsque la distribution devient completed,
-        // mettre à jour le montant reçu du bénéficiaire.
-        if (
-            status === "completed" &&
-            distribution.status !== "completed"
-        ) {
-            const beneficiary =
-                await Beneficiary.findById(
-                    distribution.beneficiary
-                );
+    const available = totalCollected - (allocated[0]?.total || 0);
 
-            if (!beneficiary) {
-                return res.status(404).json({
-                    message: "Bénéficiaire introuvable"
-                });
-            }
+    if (Number(amount) > available) {
+      return res.status(400).json({
+        message: "Fonds insuffisants pour cette distribution.",
+        availableFunds: Math.max(available, 0)
+      });
+    }
 
-            if (
-                beneficiary.amountNeeded > 0 &&
-                beneficiary.amountReceived +
-                    distribution.amount >
-                    beneficiary.amountNeeded
-            ) {
-                return res.status(400).json({
-                    message:
-                        "Le montant dépasse le besoin restant du bénéficiaire"
-                });
-            }
+    const distribution = await Distribution.create({
+      beneficiary,
+      organization,
+      campaign,
+      amount: Number(amount),
+      donationType,
+      reason,
+      method,
+      proofUrl,
+      createdBy: req.user.id,
+      status: "pending"
+    });
 
-            beneficiary.amountReceived +=
-                distribution.amount;
-
-            if (
-                beneficiary.amountNeeded > 0 &&
-                beneficiary.amountReceived >=
-                    beneficiary.amountNeeded
-            ) {
-                beneficiary.status = "completed";
-            }
-
-            await beneficiary.save();
-
-            await createAudit({
-    action: "DISTRIBUTION_STATUS_UPDATED",
-    entityType: "Distribution",
-    entityId: distribution._id,
-    user: req.user.id,
-    details: {
-        status: distribution.status,
+    await createAudit({
+      action: "DISTRIBUTION_CREATED",
+      entityType: "Distribution",
+      entityId: distribution._id,
+      user: req.user.id,
+      details: {
         amount: distribution.amount,
-        beneficiary: distribution.beneficiary,
-        organization: distribution.organization,
-        distributedAt: distribution.distributedAt
-    }
-});
+        status: distribution.status
+      },
+      ip: req.ip
+    });
 
-            distribution.distributedAt = new Date();
-        }
-
-        distribution.status = status;
-
-        await distribution.save();
-
-        res.json({
-            message:
-                "Statut de la distribution modifié avec succès",
-            distribution
-        });
-
-    } catch (error) {
-        console.error(
-            "Erreur modification distribution :",
-            error
-        );
-
-        res.status(500).json({
-            message:
-                "Erreur lors de la modification de la distribution",
-            error: error.message
-        });
-    }
+    res.status(201).json({
+      message: "Distribution enregistrée en attente d'autorisation.",
+      distribution
+    });
+  } catch (error) {
+    res.status(400).json({
+      message: "Création de la distribution impossible.",
+      error: error.message
+    });
+  }
 };
 
+const updateDistributionStatus = async (req, res) => {
+  const session = await mongoose.startSession();
 
-// ==========================================
-// ANNULER UNE DISTRIBUTION
-// ==========================================
+  try {
+    const next = req.body.status;
+
+    if (!["approved", "completed", "cancelled"].includes(next)) {
+      throw new ControllerError("Statut de distribution invalide.");
+    }
+
+    let result;
+    let auditDetails;
+
+    await session.withTransaction(async () => {
+      const distribution = await Distribution.findById(req.params.id).session(session);
+
+      if (!distribution) {
+        throw new ControllerError("Distribution introuvable.", 404);
+      }
+
+      const oldStatus = distribution.status;
+
+      if (oldStatus === "completed" || oldStatus === "cancelled") {
+        throw new ControllerError("Cette distribution est déjà clôturée.", 409);
+      }
+
+      if (next === "approved" && oldStatus !== "pending") {
+        throw new ControllerError(
+          "Seule une distribution en attente peut être autorisée.",
+          409
+        );
+      }
+
+      if (next === "completed" && oldStatus !== "approved") {
+        throw new ControllerError(
+          "La distribution doit être autorisée avant sa réalisation.",
+          409
+        );
+      }
+
+      const beneficiary = await Beneficiary.findById(
+        distribution.beneficiary
+      ).session(session);
+
+      if (!beneficiary) {
+        throw new ControllerError("Bénéficiaire introuvable.", 404);
+      }
+
+      // Les réservations sont recalculées depuis les distributions
+      // existantes afin de prendre en compte les anciennes données.
+      if (next === "approved") {
+        const approvedRows = await Distribution.aggregate([
+          {
+            $match: {
+              beneficiary: beneficiary._id,
+              status: "approved"
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: "$amount" }
+            }
+          }
+        ]).session(session);
+
+        const existingReserved = approvedRows[0]?.total || 0;
+
+        const alreadyReceived = Number(beneficiary.amountReceived || 0);
+        const totalCommitted =
+          alreadyReceived + existingReserved + distribution.amount;
+
+        if (totalCommitted > beneficiary.amountNeeded) {
+          throw new ControllerError(
+            "Le besoin du bénéficiaire est déjà dépassé ou insuffisant pour cette réservation. Vérifiez ses anciennes distributions.",
+            400
+          );
+        }
+
+        const [collected, allocated] = await Promise.all([
+          Donation.aggregate([
+            { $match: { status: "success" } },
+            { $group: { _id: null, total: { $sum: "$amount" } } }
+          ]).session(session),
+
+          Distribution.aggregate([
+            {
+              $match: {
+                status: { $in: ["approved", "completed"] },
+                _id: { $ne: distribution._id }
+              }
+            },
+            {
+              $group: {
+                _id: null,
+                total: { $sum: "$amount" }
+              }
+            }
+          ]).session(session)
+        ]);
+
+        const totalCollected = collected[0]?.total || 0;
+        const totalAllocated = allocated[0]?.total || 0;
+        const available = totalCollected - totalAllocated;
+
+        if (distribution.amount > available) {
+          throw new ControllerError(
+            "Fonds disponibles insuffisants pour autoriser cette distribution.",
+            400
+          );
+        }
+
+        beneficiary.amountReserved = existingReserved + distribution.amount;
+        await beneficiary.save({ session });
+      }
+
+      if (next === "completed") {
+        if (!distribution.proofUrl?.trim()) {
+          throw new ControllerError(
+            "Ajoutez un justificatif avant de valider la réalisation."
+          );
+        }
+
+        const approvedRows = await Distribution.aggregate([
+          {
+            $match: {
+              beneficiary: beneficiary._id,
+              status: "approved"
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: "$amount" }
+            }
+          }
+        ]).session(session);
+
+        const totalApproved = approvedRows[0]?.total || 0;
+        const received = Number(beneficiary.amountReceived || 0);
+
+        if (received + distribution.amount > beneficiary.amountNeeded) {
+          throw new ControllerError(
+            "Le montant dépasse le besoin restant du bénéficiaire."
+          );
+        }
+
+        beneficiary.amountReceived = received + distribution.amount;
+        beneficiary.amountReserved = Math.max(
+          0,
+          totalApproved - distribution.amount
+        );
+
+        if (
+          beneficiary.amountReceived >= beneficiary.amountNeeded &&
+          beneficiary.amountReserved === 0
+        ) {
+          beneficiary.status = "completed";
+        }
+
+        await beneficiary.save({ session });
+
+        distribution.distributedAt = new Date();
+        distribution.validatedAt = new Date();
+        distribution.validatedBy = req.user.id;
+      }
+
+      if (next === "cancelled" && oldStatus === "approved") {
+        const approvedRows = await Distribution.aggregate([
+          {
+            $match: {
+              beneficiary: beneficiary._id,
+              status: "approved",
+              _id: { $ne: distribution._id }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: "$amount" }
+            }
+          }
+        ]).session(session);
+
+        beneficiary.amountReserved = approvedRows[0]?.total || 0;
+        await beneficiary.save({ session });
+      }
+
+      distribution.status = next;
+      await distribution.save({ session });
+
+      auditDetails = {
+        oldStatus,
+        newStatus: next,
+        amount: distribution.amount
+      };
+
+      result = distribution;
+    });
+
+    await createAudit({
+      action: "DISTRIBUTION_STATUS_UPDATED",
+      entityType: "Distribution",
+      entityId: result._id,
+      user: req.user.id,
+      details: auditDetails,
+      ip: req.ip
+    });
+
+    res.json({
+      message: "Statut de la distribution mis à jour.",
+      distribution: result
+    });
+  } catch (error) {
+    res.status(error.status || 400).json({
+      message: "Mise à jour de la distribution impossible.",
+      error: error.message
+    });
+  } finally {
+    await session.endSession();
+  }
+};
+
 const deleteDistribution = async (req, res) => {
-    try {
-        const isAdmin = [
-            "admin",
-            "superadmin"
-        ].includes(req.user.role);
-
-        if (!isAdmin) {
-            return res.status(403).json({
-                message: "Accès réservé aux administrateurs"
-            });
-        }
-
-        const distribution =
-            await Distribution.findById(req.params.id);
-
-        if (!distribution) {
-            return res.status(404).json({
-                message: "Distribution introuvable"
-            });
-        }
-
-        if (distribution.status === "completed") {
-            return res.status(400).json({
-                message:
-                    "Une distribution terminée ne peut pas être annulée"
-            });
-        }
-
-        distribution.status = "cancelled";
-
-        await distribution.save();
-
-        res.json({
-            message: "Distribution annulée avec succès",
-            distribution
-        });
-
-    } catch (error) {
-        console.error(
-            "Erreur annulation distribution :",
-            error
-        );
-
-        res.status(500).json({
-            message: "Erreur lors de l'annulation",
-            error: error.message
-        });
-    }
+  try {
+    req.body.status = "cancelled";
+    return await updateDistributionStatus(req, res);
+  } catch (error) {
+    res.status(400).json({
+      message: "Annulation impossible.",
+      error: error.message
+    });
+  }
 };
-
 
 module.exports = {
-    createDistribution,
-    getDistributions,
-    getDistributionById,
-    updateDistributionStatus,
-    deleteDistribution
+  getDistributions,
+  createDistribution,
+  updateDistributionStatus,
+  deleteDistribution
 };
